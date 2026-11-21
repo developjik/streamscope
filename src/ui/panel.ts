@@ -5,7 +5,7 @@
  * tool-call argument assembly at the selected frame, and highlights the frame
  * where the stream broke (error frame, or a stream that never finished).
  */
-import type { Fault } from '../faults.js';
+import { formatScenario, type Fault } from '../faults.js';
 import type { InjectedFrame, NormalizedEvent, Trace } from '../types.js';
 
 export interface PanelOptions {
@@ -132,6 +132,7 @@ export function renderPanelHtml(trace: Trace, options: PanelOptions = {}): strin
     meta: trace.meta,
     frames,
     inject: options.inject ? options.inject : [],
+    injectLabel: options.inject && options.inject.length > 0 ? formatScenario(options.inject) : '',
     effects: options.frames ? 'injected' : 'recorded',
   };
   const title = options.title ?? `streamscope · ${trace.meta.session}`;
@@ -187,7 +188,7 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var
 .break { border-color: #5f2323; background: #1f1517; }
 .break h2 { color: #fca5a5; }
 .empty { color: var(--muted); font-family: var(--mono); font-size: 12px; }
-.counts { display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.counts { display: flex; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow-x: auto; }
 .counts b { color: var(--text); font-weight: 600; }
 @media (max-width: 860px) { main { grid-template-columns: 1fr; height: auto; } .timeline { border-right: 0; border-bottom: 1px solid var(--line); max-height: 50vh; } }
 </style>
@@ -248,7 +249,8 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var
   let index = 0;
   let timer = null;
 
-  $('meta').textContent = [meta.adapter, meta.framing, meta.protocol, (frames.length + ' frames')].filter(Boolean).join(' · ');
+  $('meta').textContent = [meta.adapter, meta.framing, meta.protocol, (frames.length + ' frames')].filter(Boolean).join(' · ') +
+    (data.injectLabel ? ' · injected: ' + data.injectLabel : '');
 
   function summarize(event) {
     if (!event) return '';
@@ -340,11 +342,9 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var
     } else {
       breakCard.hidden = true;
     }
-    $('counts').textContent = '';
     const counts = {};
     frames.forEach(function (f) { const t = (f.event || {}).type || '?'; counts[t] = (counts[t] || 0) + 1; });
-    $('counts').innerHTML = Object.keys(counts).sort().map(function (k) { return k + ' <b>' + counts[k] + '</b>'; }).join('  ·  ');
-    if (data.inject && data.inject.length) $('counts').innerHTML += '  ·  <span style="color:#fbbf24">injected: ' + esc(JSON.stringify(data.inject)) + '</span>';
+    $('counts').innerHTML = '<span>' + Object.keys(counts).sort().map(function (k) { return k + ' <b>' + counts[k] + '</b>'; }).join('  ·  ') + '</span>';
   }
 
   function setIndex(i) {
