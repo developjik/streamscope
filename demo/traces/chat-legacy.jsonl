@@ -1,0 +1,10 @@
+{"v":1,"kind":"meta","session":"chat-legacy","adapter":"ai-sdk-data","framing":"ndjson","protocol":"ai-sdk-data","startedAt":"2026-11-21T14:09:10.958Z","request":{"method":"GET","url":"http://127.0.0.1:8791/api/chat-legacy?fast=1","headers":{"accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node"}},"response":{"status":200,"contentType":"application/x-ndjson","headers":{"content-type":"application/x-ndjson","cache-control":"no-cache","date":"Sat, 21 Nov 2026 14:09:10 GMT","connection":"keep-alive","keep-alive":"timeout=5","transfer-encoding":"chunked"}},"notes":{"proxy":"http://127.0.0.1:8791","demo":"AI SDK legacy data stream over NDJSON","endpoint":"/api/chat-legacy"}}
+{"t_ms":0,"seq":0,"raw":"0:\"Sure — \"","event":{"type":"text-delta","delta":"Sure — "}}
+{"t_ms":3,"seq":1,"raw":"0:\"I checked the order \"","event":{"type":"text-delta","delta":"I checked the order "}}
+{"t_ms":9,"seq":2,"raw":"0:\"and it shipped \"","event":{"type":"text-delta","delta":"and it shipped "}}
+{"t_ms":14,"seq":3,"raw":"0:\"yesterday. \"","event":{"type":"text-delta","delta":"yesterday. "}}
+{"t_ms":19,"seq":4,"raw":"0:\"Want me to \"","event":{"type":"text-delta","delta":"Want me to "}}
+{"t_ms":24,"seq":5,"raw":"0:\"reschedule the delivery?\"","event":{"type":"text-delta","delta":"reschedule the delivery?"}}
+{"t_ms":30,"seq":6,"raw":"9:{\"toolCallId\":\"call_1\",\"toolName\":\"track_shipment\",\"args\":{\"orderId\":\"A-1042\"}}","event":{"type":"tool-call-delta","id":"call_1","name":"track_shipment","argsDelta":"{\"orderId\":\"A-1042\"}","complete":true,"data":{"toolCallId":"call_1","toolName":"track_shipment","args":{"orderId":"A-1042"}}}}
+{"t_ms":35,"seq":7,"raw":"a:{\"toolCallId\":\"call_1\",\"result\":{\"status\":\"in_transit\"}}","event":{"type":"tool-result","id":"call_1","result":{"status":"in_transit"},"data":{"toolCallId":"call_1","result":{"status":"in_transit"}}}}
+{"t_ms":35,"seq":8,"raw":"d:{\"finishReason\":\"stop\",\"usage\":{\"promptTokens\":42,\"completionTokens\":88}}","event":{"type":"finish","reason":"stop","data":{"finishReason":"stop","usage":{"promptTokens":42,"completionTokens":88}}}}

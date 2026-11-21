@@ -1,0 +1,71 @@
+{
+  "name": "streamscope",
+  "version": "0.1.0",
+  "description": "Black-box recorder, frame-level replayer and deterministic fault injector for AI streaming UIs (SSE / NDJSON / AI SDK / AG-UI).",
+  "keywords": [
+    "ai",
+    "streaming",
+    "sse",
+    "ndjson",
+    "ag-ui",
+    "vercel-ai-sdk",
+    "debugging",
+    "record-replay",
+    "fault-injection",
+    "playwright",
+    "llm",
+    "developer-tools"
+  ],
+  "author": "jungingwon (developjik)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/developjik/streamscope.git"
+  },
+  "homepage": "https://github.com/developjik/streamscope#readme",
+  "bugs": {
+    "url": "https://github.com/developjik/streamscope/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "streamscope": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./playwright": {
+      "types": "./dist/playwright.d.ts",
+      "import": "./dist/playwright.js"
+    }
+  },
+  "files": [
+    "dist",
+    "demo",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node e2e/run-e2e.mjs",
+    "demo": "node demo/server.mjs",
+    "verify": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "playwright": "^1.65.1",
+    "playwright-core": "^1.65.1",
+    "tsup": "^9.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.1.1"
+  }
+}

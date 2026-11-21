@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>streamscope demo</title>
+<style>
+  :root { color-scheme: light; --line: #d8dee4; --muted: #5b6570; --accent: #0b6b5b; --bad: #b42318; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; color: #101418; background: #fbfbfa; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .01em; }
+  header .tag { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
+  select, button { font: inherit; padding: 5px 9px; border: 1px solid var(--line); background: #fff; border-radius: 6px; }
+  button.primary { background: #101418; color: #fff; border-color: #101418; }
+  main { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(320px, 460px); gap: 0; height: calc(100vh - 60px); }
+  .chat { padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+  .bubble { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; max-width: 68ch; }
+  .bubble.me { align-self: flex-end; background: #eef4f2; border-color: #cfe0db; }
+  .bubble .role { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; }
+  .tool { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin-top: 8px; font-family: ui-monospace, monospace; font-size: 12.5px; background: #fcfcfb; }
+  .tool .name { font-weight: 600; }
+  .tool .state { color: var(--muted); }
+  .tool .ok { color: var(--accent); }
+  .tool .bad { color: var(--bad); }
+  .broken { color: var(--bad); font-weight: 600; }
+  .composer { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+  .composer input { flex: 1; padding: 9px 11px; font: inherit; border: 1px solid var(--line); border-radius: 8px; }
+  .log { border-left: 1px solid var(--line); background: #fff; overflow: auto; padding: 14px; }
+  .log h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; }
+  .log pre { margin: 0; font-family: ui-monospace, monospace; font-size: 11.5px; white-space: pre-wrap; word-break: break-word; color: #2b3138; }
+  .log .meta { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11.5px; margin-bottom: 8px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } .log { border-left: 0; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>streamscope demo</h1>
+  <span class="tag">a tiny streaming agent UI, four wire protocols</span>
+  <select id="endpoint">
+    <option value="/api/chat">AI SDK UI message stream (SSE)</option>
+    <option value="/api/ag-ui">AG-UI events (SSE)</option>
+    <option value="/api/chat-legacy">AI SDK legacy data stream (NDJSON)</option>
+    <option value="/api/chat-ndjson">plain NDJSON</option>
+    <option value="/api/plain">text/plain tokens</option>
+  </select>
+  <button id="send" class="primary">Send</button>
+</header>
+<main>
+  <section class="chat" id="chat">
+    <div class="bubble me"><div class="role">you</div>Where is my order A-1042?</div>
+  </section>
+  <aside class="log">
+    <h2>Wire events received</h2>
+    <div class="meta" id="status">idle</div>
+    <pre id="events"></pre>
+  </aside>
+</main>
+<script>
+(function () {
+  const chat = document.getElementById('chat');
+  const eventsEl = document.getElementById('events');
+  const statusEl = document.getElementById('status');
+  const endpointEl = document.getElementById('endpoint');
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+  function parseSse(buffer, onEvent) {
+    const parts = buffer.split('\n\n');
+    const rest = parts.pop() ?? '';
+    for (const part of parts) {
+      if (!part.trim()) continue;
+      const dataLines = [];
+      for (const line of part.split('\n')) {
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+      }
+      if (dataLines.length) onEvent(dataLines.join('\n'));
+    }
+    return rest;
+  }
+
+  function classify(payload) {
+    const text = String(payload).trim();
+    const legacy = /^([0-9a-z]):([\s\S]*)$/.exec(text);
+    if (legacy) {
+      const body = legacy[2];
+      let value = body;
+      try { value = JSON.parse(body); } catch (e) { /* keep raw */ }
+      switch (legacy[1]) {
+        case '0': return { type: 'text-delta', delta: String(value) };
+        case '9': return { type: 'tool-call', name: value.toolName, id: value.toolCallId, args: JSON.stringify(value.args) };
+        case 'a': return { type: 'tool-result', id: value.toolCallId, result: value.result };
+        case '3': return { type: 'error', message: String(value) };
+        case 'd': return { type: 'finish', reason: value.finishReason };
+      }
+      return { type: 'other', raw: text };
+    }
+    try {
+      const obj = JSON.parse(text);
+      const type = obj.type;
+      if (type === 'TEXT_MESSAGE_CONTENT') return { type: 'text-delta', delta: obj.delta };
+      if (type === 'TOOL_CALL_START') return { type: 'tool-start', id: obj.toolCallId, name: obj.toolCallName };
+      if (type === 'TOOL_CALL_ARGS') return { type: 'tool-args', id: obj.toolCallId, delta: obj.delta };
+      if (type === 'TOOL_CALL_RESULT') return { type: 'tool-result', id: obj.toolCallId, result: obj.content };
+      if (type === 'RUN_ERROR') return { type: 'error', message: obj.message };
+      if (type === 'RUN_FINISHED') return { type: 'finish' };
+      if (type === 'text-delta') return { type: 'text-delta', delta: obj.delta ?? obj.textDelta };
+      if (type === 'tool-input-start') return { type: 'tool-start', id: obj.toolCallId, name: obj.toolName };
+      if (type === 'tool-input-delta') return { type: 'tool-args', id: obj.toolCallId, delta: obj.inputTextDelta };
+      if (type === 'tool-input-available') return { type: 'tool-args-end', id: obj.toolCallId, args: JSON.stringify(obj.input) };
+      if (type === 'tool-output-available') return { type: 'tool-result', id: obj.toolCallId, result: obj.output };
+      if (type === 'tool-approval-request') return { type: 'approval', id: obj.approvalId, name: obj.toolName };
+      if (type === 'finish') return { type: 'finish' };
+      if (type === 'error') return { type: 'error', message: obj.errorText };
+      return { type: 'other', raw: text };
+    } catch (e) {
+      return { type: 'raw', raw: text };
+    }
+  }
+
+  function newBubble() {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = '<div class="role">assistant</div><div class="body"></div>';
+    chat.appendChild(bubble);
+    return bubble;
+  }
+
+  async function send() {
+    const endpoint = endpointEl.value;
+    const bubble = newBubble();
+    const body = bubble.querySelector('.body');
+    const state = { text: '', tools: new Map(), finished: false, broken: '' };
+    eventsEl.textContent = '';
+    statusEl.textContent = 'streaming ' + endpoint;
+
+    function renderTools() {
+      body.innerHTML = esc(state.text) + Array.from(state.tools.values()).map((tool) =>
+        '<div class="tool"><span class="name">' + esc(tool.name || tool.id) + '</span> ' +
+        '<span class="' + (tool.result !== undefined ? 'ok' : 'state') + '">' + (tool.result !== undefined ? 'result ✓' : 'waiting') + '</span>' +
+        '<div>' + esc(tool.args) + '</div>' + (tool.result !== undefined ? '<div class="ok">' + esc(JSON.stringify(tool.result)) + '</div>' : '') + '</div>'
+      ).join('') + (state.broken ? '<div class="broken">' + esc(state.broken) + '</div>' : '');
+    }
+
+    function handle(event) {
+      if (event.type === 'text-delta') state.text += event.delta || '';
+      else if (event.type === 'tool-start') state.tools.set(event.id, { id: event.id, name: event.name, args: '' });
+      else if (event.type === 'tool-args') {
+        const tool = state.tools.get(event.id) || { id: event.id, args: '' };
+        tool.args += event.delta || '';
+        state.tools.set(event.id, tool);
+      } else if (event.type === 'tool-args-end') {
+        const tool = state.tools.get(event.id) || { id: event.id, args: '' };
+        tool.args = event.args;
+        state.tools.set(event.id, tool);
+      } else if (event.type === 'tool-result') {
+        const tool = state.tools.get(event.id) || { id: event.id, args: '' };
+        tool.result = event.result;
+        state.tools.set(event.id, tool);
+      } else if (event.type === 'error') { state.broken = 'stream error: ' + (event.message || ''); }
+      else if (event.type === 'finish') {
+        state.finished = true;
+        if (!state.text && !state.tools.size) state.broken = 'stream finished without any content';
+      }
+      renderTools();
+    }
+
+    try {
+      const response = await fetch(endpoint + (endpoint.includes('?') ? '&' : '?') + 'fast=1');
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/event-stream')) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          buffer = parseSse(buffer, (payload) => {
+            eventsEl.textContent += new Date().toISOString().slice(11, 23) + '  ' + payload + '\n';
+            handle(classify(payload));
+          });
+        }
+        if (buffer.trim()) {
+          parseSse(buffer + '\n\n', (payload) => { eventsEl.textContent += payload + '\n'; handle(classify(payload)); });
+        }
+      } else {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            eventsEl.textContent += new Date().toISOString().slice(11, 23) + '  ' + line + '\n';
+            handle(classify(line));
+          }
+        }
+        if (buffer.trim()) { eventsEl.textContent += buffer + '\n'; handle(classify(buffer)); }
+      }
+      if (!state.finished && !state.broken) {
+        state.broken = 'connection closed before a finish event';
+        renderTools();
+      }
+      statusEl.textContent = state.finished ? 'finished' : 'interrupted';
+    } catch (error) {
+      state.broken = 'network error: ' + error.message;
+      renderTools();
+      statusEl.textContent = 'failed';
+    }
+  }
+
+  document.getElementById('send').addEventListener('click', send);
+  endpointEl.addEventListener('change', () => { chat.querySelectorAll('.bubble:not(.me)').forEach((el) => el.remove()); });
+  send();
+})();
+</script>
+</body>
+</html>
