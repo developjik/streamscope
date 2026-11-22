@@ -1,5 +1,7 @@
 # streamscope
 
+[한국어](README.ko.md) · English
+
 **Record, replay and deliberately break AI streaming UIs — down to the frame.**
 
 [![CI](https://github.com/developjik/streamscope/actions/workflows/ci.yml/badge.svg)](https://github.com/developjik/streamscope/actions/workflows/ci.yml)
