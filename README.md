@@ -144,7 +144,7 @@ npx streamscope inject demo/traces/chat-ai-sdk.jsonl \
 
 ```
 streamscope record --target http://localhost:3000 [--port 8787] [--out .streams]
-                   [--adapter auto|sse|ndjson|json] [--include <regex>] [--ignore <regex>] [--quiet]
+                   [--adapter auto|sse|ndjson|json] [--include <regex>] [--ignore <regex>] [--no-redact] [--quiet]
 
 streamscope replay <trace|session-dir> [--port 8788] [--speed 1] [--inject "<dsl>"] [--no-ui]
 
@@ -155,7 +155,7 @@ streamscope inspect <trace> [--json] [--html viewer.html] [--frames]
 streamscope --help | --version
 ```
 
-- `record` is a reverse proxy: point the browser (or Playwright, or curl) at the proxy URL and every recordable response is streamed through unchanged while being parsed. Static assets are skipped; `--include`/`--ignore` take regexes. The same code is exported as `createMiddleware()` for an Express/Connect server.
+- `record` is a reverse proxy: point the browser (or Playwright, or curl) at the proxy URL and every recordable response is streamed through unchanged while being parsed. Static assets are skipped; `--include`/`--ignore` take regexes. The same code is exported as `createMiddleware()` for an Express/Connect server. Credential headers (`authorization`, `cookie`, `set-cookie`, `x-api-key`, `proxy-authorization`) are stored as `[redacted]` in the trace — `--no-redact` records them verbatim and prints a warning. `http:` and `https:` targets are supported; other schemes are refused at startup.
 - `replay` serves `GET /stream` (recorded timing, or `--speed 0` for instant), `GET /` (the panel) and `GET /trace.json` (plan + frames). A `disconnect_at` plan destroys the socket, an `error` plan that fails on frame 0 answers a plain HTTP error.
 - `inspect` summarizes, or writes a standalone HTML panel you can attach to a bug report.
 
@@ -227,9 +227,9 @@ The handle exposes `plan` (frames + effects + outcome), `url`/`streamUrl`, `requ
 - **Unknown protocol fields survive only on untouched frames.** An injected or truncated frame is re-encoded from the normalized event, so protocol-specific extras not modeled here are omitted from *that* frame.
 - **Timing is approximate.** `t_ms` comes from the proxy's arrival times; replay sleeps between frames and cannot reproduce sub-millisecond jitter. `speed` and `maxDelayMs` deliberately change timing.
 - **A dropped socket is a real TCP close.** Some clients auto-retry; streamscope does not simulate retries or reconnect logic.
-- **Request/response bodies in meta are capped at 4 KB** and recording passes `accept-encoding` through, so if an upstream compresses, the body is passed to the browser but not parsed (use `Content-Encoding: identity` while recording).
+- **Request/response bodies in meta are capped at 4 KB** and the proxy strips `accept-encoding`, so upstreams respond uncompressed while recording.
 - **The panel models the common denominator of stream state** (text, tool args, results, approvals). It does not run your app's reducer, so app-specific derived state is not shown.
-- **Not a security scanner.** Recorded headers can contain cookies/authorization; traces are local files and are not redacted. Review before committing a trace.
+- **Not a security scanner.** Header redaction covers the built-in credential list only; bodies and custom headers are stored as sent. Review before committing a trace.
 
 ## Development
 
@@ -252,7 +252,7 @@ node scripts/record-demo.mjs        # re-record demo/traces/*.jsonl through the 
 - Diff two traces frame by frame (`streamscope diff a.jsonl b.jsonl`).
 - Cypress / Vitest browser-mode fixtures on top of the same replay server.
 - Extra adapters: OpenAI Assistants stream events, LangGraph SDK events.
-- Optional header/body redaction rules for traces that get committed.
+- Custom header/body redaction rules for traces that get committed (the built-in credential mask ships in 0.1.1).
 
 ## License
 

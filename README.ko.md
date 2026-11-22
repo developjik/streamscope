@@ -144,7 +144,7 @@ npx streamscope inject demo/traces/chat-ai-sdk.jsonl \
 
 ```
 streamscope record --target http://localhost:3000 [--port 8787] [--out .streams]
-                   [--adapter auto|sse|ndjson|json] [--include <regex>] [--ignore <regex>] [--quiet]
+                   [--adapter auto|sse|ndjson|json] [--include <regex>] [--ignore <regex>] [--no-redact] [--quiet]
 
 streamscope replay <trace|session-dir> [--port 8788] [--speed 1] [--inject "<dsl>"] [--no-ui]
 
@@ -155,7 +155,7 @@ streamscope inspect <trace> [--json] [--html viewer.html] [--frames]
 streamscope --help | --version
 ```
 
-- `record`는 리버스 프록시입니다: 브라우저(또는 Playwright, curl)를 프록시 URL로 향하게 하면 녹화 가능한 모든 응답이 파싱되면서 그대로 스트리밍됩니다. 정적 자산은 건너뛰고, `--include`/`--ignore`는 정규식을 받습니다. 같은 코드가 Express/Connect 서버용 `createMiddleware()`로도 내보내집니다.
+- `record`는 리버스 프록시입니다: 브라우저(또는 Playwright, curl)를 프록시 URL로 향하게 하면 녹화 가능한 모든 응답이 파싱되면서 그대로 스트리밍됩니다. 정적 자산은 건너뛰고, `--include`/`--ignore`는 정규식을 받습니다. 같은 코드가 Express/Connect 서버용 `createMiddleware()`로도 내보내집니다. 자격 증명 헤더(`authorization`, `cookie`, `set-cookie`, `x-api-key`, `proxy-authorization`)는 트레이스에 `[redacted]`로 저장됩니다 — `--no-redact`는 그대로 녹화하고 경고를 출력합니다. `http:`·`https:` 타깃만 지원하며 다른 스킴은 시작 단계에서 거부됩니다.
 - `replay`는 `GET /stream`(녹화된 타이밍, 또는 즉시 재생은 `--speed 0`), `GET /`(패널), `GET /trace.json`(플랜 + 프레임)을 서빙합니다. `disconnect_at` 플랜은 소켓을 파괴하고, 프레임 0에서 실패하는 `error` 플랜은 평범한 HTTP 에러로 응답합니다.
 - `inspect`는 요약하거나, 버그 리포트에 첨부할 수 있는 독립형 HTML 패널을 씁니다.
 
@@ -227,9 +227,9 @@ test('the UI does not lose the tool card when a chunk is dropped', async ({ page
 - **알 수 없는 프로토콜 필드는 손대지 않은 프레임에서만 살아남습니다.** 주입되거나 잘린 프레임은 정규화된 이벤트에서 다시 인코딩되므로, 여기서 모델링하지 않은 프로토콜 특유의 여분 필드는 *그* 프레임에서 빠집니다.
 - **타이밍은 근사값입니다.** `t_ms`는 프록시의 도착 시각에서 나오고, 재생은 프레임 사이에 잠들며 밀리초 미만의 지터를 재현할 수 없습니다. `speed`와 `maxDelayMs`는 의도적으로 타이밍을 바꿉니다.
 - **드롭된 소켓은 실제 TCP 종료입니다.** 일부 클라이언트는 자동 재시도합니다. streamscope는 재시도나 재연결 로직을 시뮬레이션하지 않습니다.
-- **메타의 요청/응답 본문은 4KB로 제한**되고, 녹화는 `accept-encoding`을 그대로 넘기므로 업스트림이 압축하면 본문은 브라우저로 전달되지만 파싱되지 않습니다(녹화 중에는 `Content-Encoding: identity` 사용).
+- **메타의 요청/응답 본문은 4KB로 제한**되고, 프록시는 `accept-encoding`을 제거하므로 녹화 중 업스트림은 비압축으로 응답합니다.
 - **패널은 스트림 상태의 공통분모**를 모델링합니다(텍스트, 툴 인자, 결과, 승인). 앱의 리듀서를 돌리지 않으므로 앱 특유의 파생 상태는 표시하지 않습니다.
-- **보안 스캐너가 아닙니다.** 녹화된 헤더에는 쿠키/인증 정보가 들어 있을 수 있고, 트레이스는 로컬 파일이며 마스킹되지 않습니다. 커밋하기 전에 검토하세요.
+- **보안 스캐너가 아닙니다.** 헤더 리댁션은 내장 자격 증명 목록만 다루고, 본문과 사용자 정의 헤더는 보낸 그대로 저장됩니다. 커밋하기 전에 검토하세요.
 
 ## 개발
 
@@ -252,7 +252,7 @@ node scripts/record-demo.mjs        # 실제 프록시로 demo/traces/*.jsonl �
 - 두 트레이스를 프레임 단위로 비교 (`streamscope diff a.jsonl b.jsonl`).
 - 같은 재생 서버 위의 Cypress / Vitest 브라우저 모드 픽스처.
 - 추가 어댑터: OpenAI Assistants 스트림 이벤트, LangGraph SDK 이벤트.
-- 커밋되는 트레이스용 선택적 헤더/본문 마스킹 규칙.
+- 커밋되는 트레이스용 사용자 정의 헤더/본문 리댁션 규칙 (내장 자격 증명 마스크는 0.1.1부터 제공).
 
 ## 라이선스
 

@@ -8,13 +8,14 @@
  * `.streams/<session>/events.jsonl`. Static assets are passed through untouched.
  */
 import http from 'node:http';
+import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import type { AdapterOptions } from './adapters/index.js';
 import { Recorder, type RecorderOptions } from './recorder.js';
 import type { Trace } from './types.js';
 
 export interface ProxyOptions {
-  /** Upstream origin, e.g. `http://localhost:3000`. */
+  /** Upstream origin, e.g. `http://localhost:3000` (http: and https: only). */
   target: string;
   outDir?: string;
   adapter?: AdapterOptions;
@@ -29,6 +30,14 @@ export interface ProxyOptions {
   /** Log one line per session to stderr. */
   log?: boolean;
   now?: () => number;
+  /**
+   * Mask credentials in *recorded* headers (authorization, cookie, set-cookie,
+   * x-api-key, proxy-authorization -> `[redacted]`). Default true; forwarding
+   * is never affected. Pass `false` (--no-redact) to record headers verbatim.
+   */
+  redact?: boolean;
+  /** Custom agent for upstream requests (self-signed TLS, corporate proxies). */
+  agent?: http.Agent | https.Agent;
 }
 
 export interface ProxyHandle {
@@ -68,27 +77,71 @@ function collectBody(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
+/** Header names whose values are masked in the recorded trace. */
+export const SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'proxy-authorization',
+]);
+
+/** Mask credential headers for the trace file; forwarding is untouched. */
+export function redactHeaders(headers: Record<string, string>, enabled = true): Record<string, string> {
+  if (!enabled) return headers;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = SENSITIVE_HEADERS.has(key.toLowerCase()) ? '[redacted]' : value;
+  }
+  return out;
+}
+
+function writeJson(res: http.ServerResponse, status: number, payload: Record<string, unknown>): void {
+  if (res.writableEnded) return;
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify(payload));
+}
+
 /** Proxy one request, recording the response when it can carry a stream. */
 export async function handleProxyRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   options: ProxyOptions,
 ): Promise<void> {
-  const targetBase = new URL(options.target);
   const requestUrl = req.url ?? '/';
-  const targetUrl = new URL(requestUrl, targetBase);
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(requestUrl, new URL(options.target));
+  } catch {
+    writeJson(res, 400, {
+      error: 'streamscope proxy: invalid target or request URL',
+      target: options.target,
+      url: requestUrl,
+    });
+    return;
+  }
+  if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
+    writeJson(res, 502, {
+      error: 'streamscope proxy: unsupported target protocol',
+      protocol: targetUrl.protocol,
+    });
+    return;
+  }
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
   const body = hasBody ? await collectBody(req) : Buffer.alloc(0);
 
-  const upstream = http.request(
+  const transport = targetUrl.protocol === 'https:' ? https : http;
+  const upstream = transport.request(
     targetUrl,
     {
       method: req.method,
       headers: {
         ...forwardHeaders(req.headers),
-        host: targetBase.host,
+        host: targetUrl.host,
         ...(hasBody ? { 'content-length': String(body.length) } : {}),
       },
+      ...(options.agent ? { agent: options.agent } : {}),
     },
     (upstreamRes) => {
       const contentType = upstreamRes.headers['content-type'] as string | undefined;
@@ -107,16 +160,28 @@ export async function handleProxyRequest(
           request: {
             method: req.method,
             url: targetUrl.toString(),
-            headers: Object.fromEntries(
-              Object.entries(forwardHeaders(req.headers)).map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : String(v)]),
+            headers: redactHeaders(
+              Object.fromEntries(
+                Object.entries(forwardHeaders(req.headers)).map(([k, v]) => [
+                  k,
+                  Array.isArray(v) ? v.join(', ') : String(v),
+                ]),
+              ),
+              options.redact !== false,
             ),
             ...(hasBody && body.length <= 4096 ? { body: body.toString('utf8') } : {}),
           },
           response: {
             status: upstreamRes.statusCode ?? 0,
             contentType: contentType ?? '',
-            headers: Object.fromEntries(
-              Object.entries(upstreamRes.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : String(v ?? '')]),
+            headers: redactHeaders(
+              Object.fromEntries(
+                Object.entries(upstreamRes.headers).map(([k, v]) => [
+                  k,
+                  Array.isArray(v) ? v.join(', ') : String(v ?? ''),
+                ]),
+              ),
+              options.redact !== false,
             ),
           },
           notes: { proxy: options.target },
@@ -194,8 +259,21 @@ export function createMiddleware(options: ProxyOptions) {
 
 /** Start a standalone recording proxy. */
 export async function startRecordingProxy(options: ProxyOptions): Promise<ProxyHandle> {
+  const scheme = new URL(options.target).protocol;
+  if (scheme !== 'http:' && scheme !== 'https:') {
+    throw new Error(`streamscope: unsupported target protocol "${scheme}" (expected http: or https:)`);
+  }
   const server = http.createServer((req, res) => {
-    void handleProxyRequest(req, res, options);
+    handleProxyRequest(req, res, options).catch((error: unknown) => {
+      // A failed request must end as a response, never as an unhandled
+      // rejection that takes the proxy process down.
+      if (res.writableEnded) return;
+      if (res.headersSent) {
+        res.end();
+        return;
+      }
+      writeJson(res, 502, { error: 'streamscope proxy request failed', detail: String(error) });
+    });
   });
   server.on('clientError', (_error, socket) => socket.destroy());
   await new Promise<void>((resolve) => server.listen(options.port ?? 0, options.host ?? '127.0.0.1', resolve));

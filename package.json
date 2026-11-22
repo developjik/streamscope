@@ -1,6 +1,6 @@
 {
   "name": "streamscope",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Black-box recorder, frame-level replayer and deterministic fault injector for AI streaming UIs (SSE / NDJSON / AI SDK / AG-UI).",
   "keywords": [
     "ai",

@@ -41,7 +41,7 @@ describe('streamscope CLI', () => {
   it('prints the version', async () => {
     const { io, out } = capture();
     expect(await run(['--version'], io)).toBe(0);
-    expect(out().trim()).toBe('0.1.0');
+    expect(out().trim()).toBe('0.1.1');
   });
 
   it('prints top-level and per-command help', async () => {
@@ -110,6 +110,25 @@ describe('streamscope CLI', () => {
     const badRange = capture();
     expect(await run(['inject', fixture, '--with', 'drop(99)'], badRange.io)).toBe(2);
     expect(badRange.err()).toContain('out of range');
+  });
+
+  it('warns once when recording with --no-redact', async () => {
+    const dir = await tmpDir();
+    const cli = capture();
+    const before = new Set(process.listeners('SIGINT'));
+    const done = run(
+      ['record', '--target', 'http://127.0.0.1:1', '--port', '0', '--out', dir, '--no-redact'],
+      cli.io,
+    );
+    const start = Date.now();
+    while (!cli.err().includes('redaction') && Date.now() - start < 5000) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(cli.err()).toContain('without header redaction');
+    // Invoke only the SIGINT handler this run registered — never vitest's own.
+    for (const listener of process.listeners('SIGINT').filter((l) => !before.has(l))) listener('SIGINT');
+    expect(await done).toBe(0);
+    expect(cli.out()).toContain('streamscope proxy:');
   });
 
   it('rejects an unknown command with exit code 2', async () => {

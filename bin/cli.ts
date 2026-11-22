@@ -30,7 +30,7 @@ const DEFAULT_IO: CliIO = {
   cwd: process.cwd(),
 };
 
-const BOOLEAN_FLAGS = new Set(['help', 'version', 'json', 'open', 'no-ui', 'print', 'quiet', 'force', 'frames']);
+const BOOLEAN_FLAGS = new Set(['help', 'version', 'json', 'open', 'no-ui', 'print', 'quiet', 'force', 'frames', 'no-redact']);
 const VALUE_FLAGS = new Set([
   'target',
   'port',
@@ -175,7 +175,7 @@ Commands
 
 Record
   streamscope record --target http://localhost:3000 [--port 8787]
-      [--out .streams] [--adapter auto|sse|ndjson|json] [--include <regex>] [--quiet]
+      [--out .streams] [--adapter auto|sse|ndjson|json] [--include <regex>] [--no-redact] [--quiet]
 
 Replay
   streamscope replay <trace|session-dir> [--port 8788] [--speed 1]
@@ -208,6 +208,8 @@ function commandHelp(command: string): string {
   --adapter <name>   auto | sse | ndjson | json (default auto, sniffed)
   --include <regex>  Record only matching request URLs
   --ignore <regex>   Never record matching URLs
+  --no-redact        Record Authorization/Cookie/etc. headers verbatim
+                     (default masks them as [redacted] in the trace)
   --quiet            Do not log each recorded session
 
 Point your browser at the proxy URL instead of the app; every stream it serves
@@ -373,9 +375,13 @@ async function runRecord(parsed: Parsed, io: CliIO): Promise<number> {
     adapter: { framing: adapterName },
     ...(include ? { include: new RegExp(include) } : {}),
     ...(ignore ? { ignore: new RegExp(ignore) } : {}),
+    redact: !bool(parsed, 'no-redact'),
     log: !bool(parsed, 'quiet'),
     onSession: () => undefined,
   });
+  if (bool(parsed, 'no-redact')) {
+    io.stderr('streamscope: warning: recording without header redaction — Authorization, Cookie, Set-Cookie, X-API-Key and Proxy-Authorization are stored verbatim\n');
+  }
   io.stdout(`streamscope proxy: ${proxy.url} -> ${target}\n`);
   io.stdout(`traces: ${out}/<session>/events.jsonl  (Ctrl-C to stop)\n`);
   await new Promise<void>((resolve) => {
