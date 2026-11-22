@@ -58,10 +58,12 @@
     "test:watch": "vitest",
     "test:e2e": "node e2e/run-e2e.mjs",
     "demo": "node demo/server.mjs",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm test && npm run build",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.2.7",
     "playwright": "^1.65.1",
     "playwright-core": "^1.65.1",
     "tsup": "^8.5.1",
