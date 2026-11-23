@@ -9,7 +9,10 @@ export default defineConfig({
   format: ['esm'],
   target: 'node20',
   platform: 'node',
-  dts: true,
+  // Declarations are emitted by `tsc -p tsconfig.build.json` instead: tsup's
+  // rollup-plugin-dts path needs the TypeScript JS compiler API, which
+  // typescript 7 (native) no longer ships.
+  dts: false,
   clean: true,
   sourcemap: true,
   splitting: false,
