@@ -1,0 +1,31 @@
+import {chromium} from 'playwright';
+import {preview} from 'vite';
+import {existsSync} from 'node:fs';
+import {mkdir} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const server=await preview({configFile:'apps/playground/vite.config.mjs',preview:{host:'127.0.0.1',port:0}});
+const address=server.httpServer.address();
+const executablePath=process.env.PLAYWRIGHT_CHROMIUM??['/workspace/.tools/chromium/pack/chromium','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
+const env={...process.env};const libs=['/workspace/.tools/chromium/pack/libs/lib','/workspace/.tools/root/usr/lib/x86_64-linux-gnu'].filter(existsSync);if(libs.length)env.LD_LIBRARY_PATH=[...libs,env.LD_LIBRARY_PATH??''].filter(Boolean).join(':');
+let browser;
+try{
+ browser=await chromium.launch({headless:true,...(executablePath?{executablePath}:{}),args:['--no-sandbox','--disable-dev-shm-usage'],env});
+ const page=await browser.newPage({viewport:{width:1280,height:1100}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const url=`http://127.0.0.1:${address.port}/streamscope/`;
+ await page.goto(url);await page.locator('#status').filter({hasText:'Loaded example-normal'}).waitFor();
+ const frame=()=>page.frameLocator('#panel');assert.equal(await frame().locator('#break-card').isVisible(),false);await frame().locator('#next').click();assert.match(await frame().locator('#text-out').innerText(),/Let me/);
+ await frame().locator('#speed').selectOption('16');await frame().locator('#play').click();await frame().locator('#frame-title').filter({hasText:'#6'}).waitFor();
+ await page.locator('[data-example=disconnect]').click();await frame().locator('#break-card').waitFor();assert.match(await frame().locator('#break-body').innerText(),/without a finish/);
+ await page.locator('[data-example=error]').click();await frame().locator('#scrub').fill('4');assert.match(await frame().locator('#break-body').innerText(),/rate limit/);
+ await page.locator('[data-example=normal]').click();await page.locator('#fault').fill('disconnect_at(0.6)');await page.locator('#apply').click();await frame().locator('#break-card').waitFor();
+ await page.locator('#share').click();assert.match(await page.locator('#status').innerText(),/confirm first/);
+ await page.locator('#consent').check();await page.locator('#share').click();await page.waitForFunction(()=>document.querySelector('#link').value.includes('#trace='));const shared=await page.locator('#link').inputValue();
+ await page.goto(shared);await page.locator('#status').filter({hasText:'Loaded example-normal'}).waitFor();assert.equal(await page.locator('#fault').inputValue(),'disconnect_at(0.6)');await frame().locator('#break-card').waitFor();
+ await page.locator('#trace').fill('{broken');await page.locator('#load').click();assert.match(await page.locator('#status').innerText(),/invalid JSON/);assert.equal(await page.locator('#panel').getAttribute('srcdoc'),'');
+ await page.locator('#file').setInputFiles({name:'demo.jsonl',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({v:1,kind:'meta',session:'file-upload',adapter:'sse',framing:'sse',protocol:'generic',startedAt:'2026-01-01'})+'\n'+JSON.stringify({seq:0,t_ms:0,raw:'x',event:{type:'finish'}}))});await page.locator('#status').filter({hasText:'file-upload'}).waitFor();
+ await page.locator('[data-example=normal]').click();await page.locator('#fault').fill('slow(500)');await page.locator('#apply').click();await frame().locator('#next').click();assert.match(await frame().locator('#frame-title').innerText(),/1220ms/i);await page.locator('#fault').fill('bad()');await page.locator('#apply').click();assert.match(await page.locator('#status').innerText(),/unknown fault/);
+ await page.locator('[data-example=normal]').click();await mkdir('e2e/.artifacts',{recursive:true});await page.screenshot({path:'e2e/.artifacts/playground-desktop.png',fullPage:true});
+ await page.screenshot({path:'e2e/.artifacts/playground-anim1.png',fullPage:false});await frame().locator('#scrub').fill('4');await page.screenshot({path:'e2e/.artifacts/playground-anim2.png',fullPage:false});await frame().locator('#scrub').fill('6');await page.screenshot({path:'e2e/.artifacts/playground-anim3.png',fullPage:false});await frame().locator('#scrub').fill('0');
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:'e2e/.artifacts/playground-mobile.png',fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await frame().locator('#next').click();assert.match(await frame().locator('#text-out').innerText(),/Let me/);
+ await page.locator('#clear').click();assert.equal(await page.locator('#trace').inputValue(),'');assert.equal(new URL(page.url()).hash,'');assert.deepEqual(errors,[]);console.log('playground browser acceptance passed');
+}finally{await browser?.close();await new Promise(r=>server.httpServer.close(r));}
