@@ -18,6 +18,8 @@
  * Indices are 0-based and always refer to frames of the *recorded* trace, so
  * the order faults are written in never changes the result. Application order
  * is fixed: truncate → drop → dup → reorder → disconnect → error → slow.
+ * Drops form a union of original positions; dup skips dropped frames and
+ * copies the surviving transformed frame (including truncated arguments).
  */
 import { formatSseMessage } from './adapters/sse.js';
 import { encodeEvent } from './adapters/protocols.js';
@@ -244,14 +246,16 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     effects.push(`truncate_tool_args(${fault.atByte}): cut ${touched} tool-argument fragment(s)`);
   }
 
-  // 2. drop
+  // 2. drop. Resolve each range against the recorded trace, never the
+  // shrinking working array. Overlapping drops therefore form a union.
   for (const fault of faults) {
     if (fault.kind !== 'drop') continue;
     const from = fault.from ?? fault.index ?? 0;
     const to = fault.to ?? from;
     if (fault.from === undefined) check(fault.index, 'drop');
     const before = working.length;
-    working = working.filter((_, index) => index < from || index > to);
+    const droppedSequences = new Set(frames.slice(from, to + 1).map((frame) => frame.seq));
+    working = working.filter((frame) => !droppedSequences.has(frame.seq));
     effects.push(`drop(${fault.from !== undefined ? `${from}..${to}` : from}): removed ${before - working.length} frame(s)`);
   }
 
@@ -262,9 +266,15 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     const source = frames[fault.index];
     if (!source) continue;
     const at = working.findIndex((frame) => frame.seq === source.seq);
-    const copy: InjectedFrame = { ...source, event: { ...source.event } };
-    if (at === -1) working.push(copy);
-    else working.splice(at + 1, 0, copy);
+    // Drop wins over dup. Duplicate the transformed surviving frame so any
+    // earlier argument truncation is preserved in both copies.
+    if (at === -1) {
+      effects.push(`dup(${fault.index}): skipped dropped frame #${fault.index}`);
+      continue;
+    }
+    const transformed = working[at]!;
+    const copy: InjectedFrame = { ...transformed, event: { ...transformed.event } };
+    working.splice(at + 1, 0, copy);
     effects.push(`dup(${fault.index}): frame #${fault.index} sent twice`);
   }
 
