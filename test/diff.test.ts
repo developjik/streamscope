@@ -185,3 +185,11 @@ describe('conservative argument numbers and scoped indices', () => {
     }
   });
 });
+
+
+it('never equates parsed JSON strings with unparsed argument source',()=>{
+ const a=trace([{id:'tool'}]),b=trace([{id:'tool'}]);
+ for(const t of [a,b])Object.assign(t.frames[0]!.event,{type:'tool-call-delta',complete:true});
+ a.frames[0]!.event.argsDelta='{"n":0.1}';b.frames[0]!.event.argsDelta=JSON.stringify(a.frames[0]!.event.argsDelta);
+ expect(diffViolations(diffTraces(a,b),parseDiffGates('payload'))).toEqual(['payload']);
+});
