@@ -133,6 +133,9 @@ npx streamscope replay .streams/<session> --inject "drop(3),disconnect_at(0.62)"
 
 시나리오는 쉼표나 세미콜론으로 조합합니다: `--inject "drop(3), dup(7), disconnect_at(0.62)"`. 잘못된 장애는 이유와 함께 실패합니다(`drop(99)` → `out of range — the trace has 16 frame(s)`). 조용히 넘어가는 일은 없습니다.
 
+모든 인덱스는 녹화 원본의 0부터 시작하는 위치를 가리킵니다. 여러 `drop`은 원본 위치의 합집합을 제거하며, 겹치거나 반복된 범위는 이미 제거한 프레임을 다시 세지 않습니다. `drop`으로 제거한 프레임의 `dup`은 건너뛰고 복원하지 않습니다. 살아 있는 프레임의 `dup`에는 앞서 적용한 도구 인자 잘림도 그대로 반영됩니다.
+
+
 시나리오를 새 픽스처로 구워 넣기:
 
 ```bash
