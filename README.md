@@ -332,3 +332,11 @@ workflow that downloads a base-commit recording artifact and fails on removed
 frames. It uses the committed demo trace as a runnable placeholder; replace
 both copy steps with the same deterministic application recording command.
 It does not use elevated pull_request_target permissions or release packages.
+
+Use stable seeded tool/message/run IDs in both recordings. If providers generate
+new IDs on each run, normalize them consistently (including references inside
+native data) before hashing/comparing; otherwise ID changes are additions and
+removals by design. Provider fragment indices are scoped by step/message ID.
+Completed valid JSON argument strings are compared structurally; partial argument
+fragments stay byte-sensitive. HTML output may not overwrite either input trace
+or the baseline manifest (symlink and hardlink aliases are also rejected).
