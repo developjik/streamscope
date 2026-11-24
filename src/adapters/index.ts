@@ -6,7 +6,7 @@
  * detected per payload by `protocols.ts` and exposed as `protocol`.
  */
 import type { AdapterFrame, Framing, NormalizedEvent, Protocol } from '../types.js';
-import { providerEvents } from './providers.js';
+import { providerEvents, providerWire } from './providers.js';
 import { NdjsonParser } from './ndjson.js';
 import { SseParser, formatSseMessage } from './sse.js';
 import { adapterLabel, classifyPayload, encodeEvent } from './protocols.js';
@@ -124,6 +124,7 @@ class Adapter implements StreamAdapter {
   }
 
   encode(event: NormalizedEvent): string {
+    if (this.framing === 'sse') { const wire = providerWire(event, this.protocol); if (wire) return wire; }
     const payload = encodeEvent(event, this.protocol);
     return this.wrap(payload);
   }
