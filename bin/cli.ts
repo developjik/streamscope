@@ -609,10 +609,12 @@ async function runServe(parsed: Parsed, io: CliIO): Promise<number> {
   const portValue=(name:string,fallback:number)=>{const n=Number(flag(parsed,name)??fallback);if(!Number.isInteger(n)||n<0||n>65535)throw new UsageError(`--${name} must be an integer from 0 to 65535`);return n;};
   const speed=Number(flag(parsed,'speed')??1);if(!Number.isFinite(speed)||speed<0)throw new UsageError('--speed must be a nonnegative finite number');
   const adapter=(flag(parsed,'adapter')??'auto');if(!['auto','sse','ndjson','json'].includes(adapter))throw new UsageError('invalid adapter');
-  const handle=await startServe({target,port:portValue('port',8787),panelPort:portValue('panel-port',8788),outDir:path.resolve(io.cwd,flag(parsed,'out')??'.streams'),speed,adapter:{framing:adapter as 'auto'|'sse'|'ndjson'|'json'},include:flag(parsed,'include')?new RegExp(flag(parsed,'include')!):undefined,ignore:flag(parsed,'ignore')?new RegExp(flag(parsed,'ignore')!):undefined,redact:!bool(parsed,'no-redact'),log:!bool(parsed,'quiet')});
+  let stopping=false;let finish: (()=>void)|undefined;const stop=()=>{stopping=true;finish?.();};process.on('SIGINT',stop);process.on('SIGTERM',stop);
+  let handle:Awaited<ReturnType<typeof startServe>>|undefined;
   try{
+  handle=await startServe({target,port:portValue('port',8787),panelPort:portValue('panel-port',8788),outDir:path.resolve(io.cwd,flag(parsed,'out')??'.streams'),speed,adapter:{framing:adapter as 'auto'|'sse'|'ndjson'|'json'},include:flag(parsed,'include')?new RegExp(flag(parsed,'include')!):undefined,ignore:flag(parsed,'ignore')?new RegExp(flag(parsed,'ignore')!):undefined,redact:!bool(parsed,'no-redact'),log:!bool(parsed,'quiet')});
     io.stdout(`streamscope proxy: ${handle.proxyUrl} -> ${target}\npanel: ${handle.url}\n`);
     if(bool(parsed,'no-redact'))io.stderr('Warning: header redaction disabled; recorded headers may contain credentials.\n');
-    await new Promise<void>(resolve=>{const stop=()=>{process.off('SIGINT',stop);process.off('SIGTERM',stop);resolve();};process.on('SIGINT',stop);process.on('SIGTERM',stop);});
-  }finally{await handle.close();}return 0;
+    if(!stopping)await new Promise<void>(resolve=>{finish=resolve;});
+  }finally{process.off('SIGINT',stop);process.off('SIGTERM',stop);await handle?.close();}return 0;
 }
