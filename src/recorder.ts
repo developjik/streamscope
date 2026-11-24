@@ -65,6 +65,7 @@ export class Recorder {
   begin(): Promise<void> {
     this.queue = this.queue.then(async () => {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
+      await fs.writeFile(path.join(path.dirname(this.file), '.recording'), 'active');
       await fs.writeFile(this.file, `${serializeMeta({ ...this.meta, adapter: this.adapter.label })}\n`, 'utf8');
     });
     return this.queue.then(() => undefined);
@@ -106,6 +107,7 @@ export class Recorder {
     this.meta.framing = meta.framing;
     this.meta.protocol = meta.protocol;
     if (response) this.meta.response = meta.response;
+    await fs.unlink(path.join(path.dirname(this.file), '.recording')).catch(() => undefined);
     return this.snapshot();
   }
 
