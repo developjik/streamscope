@@ -22,7 +22,7 @@ describe('recording-backed runner fixtures', () => {
     while (true) { const chunk = await reader.read(); if (chunk.done) break; events.push(...adapter.feed(chunk.value)); }
     events.push(...adapter.flush());
     const replay = events.map((frame, seq) => ({ ...frame, seq, t_ms: 0 }));
-    (expect(replay) as unknown as { toMatchTrace(expected: typeof t): void }).toMatchTrace(t);
+    expect(replay).toMatchTrace(t);
     replay[1]!.event.delta = 'broken';
     const mismatch = toMatchTrace(replay, t);
     expect(mismatch.pass).toBe(false);
