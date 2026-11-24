@@ -20,13 +20,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: ['22.18.0', '22.x']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ matrix.node }}
+          check-latest: ${{ matrix.node == '22.x' }}
           cache: npm
 
       - name: Install
@@ -59,7 +60,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version: '22.18.0'
           cache: npm
 
       - name: Install
@@ -84,3 +85,28 @@ jobs:
           name: e2e-screenshots
           path: e2e/.artifacts
           if-no-files-found: ignore
+
+  runtime-node20:
+    name: built production package (Node ${{ matrix.runtime }}, no test runner)
+    strategy:
+      matrix:
+        runtime: ['20.0.0', '20.19.0']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22.18.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack built distribution
+        run: |
+          tarball=$(npm pack --ignore-scripts --silent)
+          test -n "$tarball"
+          test -f "$tarball"
+          echo "RUNTIME_TARBALL=$PWD/$tarball" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.runtime }}
+      - run: node scripts/runtime-smoke.mjs
