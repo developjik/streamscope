@@ -375,3 +375,8 @@ An active recorder leaves a .recording marker; partial/crashed recordings with t
 its trace is written. The proxy forwards live requests and records their stream
 contents; header redaction stays on by default, but body contents may still be
 sensitive. Use only with trusted local clients and upstreams.
+
+On Linux, the session panel requires `/proc/self/fd` to be mounted and readable.
+It verifies the opened file descriptor stays inside the session root and fails
+closed if that check is unavailable. A container without procfs can still use
+the existing standalone record/replay CLI, but cannot use the serve session panel.
