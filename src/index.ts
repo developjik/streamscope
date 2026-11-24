@@ -42,3 +42,6 @@ export { classifyPayload, encodeEvent, encodeErrorPayload } from './adapters/pro
 export { SseParser, formatSseMessage } from './adapters/sse.js';
 export type { SseMessage } from './adapters/sse.js';
 export { NdjsonParser } from './adapters/ndjson.js';
+
+export { diffTraces, diffViolations, formatTraceDiff, parseDiffGates, renderDiffHtml } from './diff.js';
+export type { TraceDiff, FrameChange, PayloadChange, DiffGate } from './diff.js';
