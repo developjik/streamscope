@@ -188,7 +188,11 @@ describe('recording proxy', () => {
     const upstream = await startUpstream();
     closers.push(upstream.close);
     const dir = await tmpDir();
-    const middleware = createMiddleware({ target: upstream.url, outDir: dir });
+    // Response completion precedes the asynchronous recording flush. Wait for
+    // onSession before removing the output directory in afterEach.
+    let resolveRecorded!: (trace: Trace) => void;
+    const recorded = new Promise<Trace>((resolve) => { resolveRecorded = resolve; });
+    const middleware = createMiddleware({ target: upstream.url, outDir: dir, onSession: resolveRecorded });
     const server = http.createServer((req, res) => middleware(req, res));
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     closers.push(
@@ -203,6 +207,9 @@ describe('recording proxy', () => {
     const response = await fetch(`http://127.0.0.1:${port}/api/chat`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('world');
+    const trace = await recorded;
+    expect(trace.frames.at(-1)?.event.type).toBe('finish');
+    expect((await readTrace(trace.path!)).frames).toHaveLength(4);
   });
 
   it('redacts credential headers in the trace by default', async () => {
