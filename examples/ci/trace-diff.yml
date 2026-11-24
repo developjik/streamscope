@@ -1,0 +1,54 @@
+# Copy into .github/workflows/trace-diff.yml after choosing a representative
+# deterministic recording command for your app. This example compares the
+# committed chat fixture; replace both cp commands with your recorder command.
+name: Stream regression example
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  main-recording:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - run: |
+          mkdir -p baseline
+          cp demo/traces/chat-ai-sdk.jsonl baseline/events.jsonl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: main-stream-recording
+          path: baseline/events.jsonl
+          if-no-files-found: error
+  compare:
+    needs: main-recording
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22.18.0
+          cache: npm
+      - run: npm ci && npm run build
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: main-stream-recording
+          path: baseline
+      - run: |
+          mkdir -p current
+          cp demo/traces/chat-ai-sdk.jsonl current/events.jsonl
+          node dist/cli.js diff baseline/events.jsonl current/events.jsonl --fail-on removed --json --html reports/diff.html > reports.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: stream-diff
+          path: |
+            reports.json
+            reports/diff.html
+          if-no-files-found: warn
+# A removed frame makes the diff step exit 1 and fails this workflow. This uses
+# pull_request, not pull_request_target; never run PR code with write secrets.
+# Artifacts may contain trace payloads. Redact secrets before recording/upload.
