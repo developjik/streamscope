@@ -144,7 +144,11 @@ export function diffTraces(before: Trace, after: Trace): TraceDiff {
       beforeIndex: x.index,
       afterIndex: y.index,
       latencyDeltaMs: y.frame.t_ms - x.frame.t_ms,
-      payload: payloadDiff(comparisonEvent(x.frame), comparisonEvent(y.frame)),
+      payload: (()=>{
+        const changes=payloadDiff(comparisonEvent(x.frame), comparisonEvent(y.frame));
+        const argsChanged=changes.some(c=>c.path==='/argsDelta'||c.path.startsWith('/argsDelta/'));
+        return [...changes.filter(c=>c.path!=='/argsDelta'&&!c.path.startsWith('/argsDelta/')),...(argsChanged?[{path:'/argsDelta',before:x.frame.event.argsDelta,after:y.frame.event.argsDelta}]:[])];
+      })(),
       reordered: ranks.get(x.key) !== rank,
     };
   });
