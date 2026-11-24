@@ -50,3 +50,28 @@ export function providerEvents(name: string | undefined, payload: string, hint?:
     return { protocol, events };
   }
 }
+
+/** Re-encode synthesized/mutated events so provider clients retain their SSE envelope. */
+export function providerWire(event: NormalizedEvent, protocol: Protocol): string | undefined {
+  let name: string; let data: unknown;
+  if (protocol === 'openai-assistants') {
+    switch (event.type) {
+      case 'text-delta': name = 'thread.message.delta'; data = { id: event.id, delta: { content: [{ type: 'text', text: { value: event.delta ?? '' } }] } }; break;
+      case 'tool-call-delta': name = 'thread.run.step.delta'; data = { delta: { step_details: { tool_calls: [{ id: event.id, type: 'function', function: { name: event.name, arguments: event.argsDelta ?? '' } }] } } }; break;
+      case 'run-start': name = 'thread.run.created'; data = { id: event.id }; break;
+      case 'finish': name = 'thread.run.completed'; data = { id: event.id }; break;
+      case 'error': name = 'thread.run.failed'; data = { id: event.id, last_error: { message: event.message, code: event.status } }; break;
+      default: name = event.name?.startsWith('thread.') ? event.name : 'thread.unknown'; data = event.data ?? event;
+    }
+  } else if (protocol === 'langgraph') {
+    switch (event.type) {
+      case 'text-delta': name = 'messages'; data = [{ id: event.id, content: event.delta ?? '' }, {}]; break;
+      case 'tool-call-delta': name = 'messages'; data = [{ content: '', tool_call_chunks: [{ id: event.id, name: event.name, args: event.argsDelta ?? '' }] }, {}]; break;
+      case 'run-start': name = 'metadata'; data = { run_id: event.id }; break;
+      case 'finish': name = 'end'; data = { run_id: event.id, status: event.reason ?? 'success' }; break;
+      case 'error': name = 'error'; data = { message: event.message, code: event.status }; break;
+      default: name = event.name ?? 'custom'; data = event.data ?? event;
+    }
+  } else return;
+  return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+}
