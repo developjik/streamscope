@@ -268,14 +268,14 @@ import { createTraceFetch, toMatchTrace } from 'streamscope/vitest';
 import { interceptTrace } from 'streamscope/cypress';
 expect.extend({ toMatchTrace });
 vi.stubGlobal('fetch', createTraceFetch(trace, { url: '/api/chat' }));
-expect(toMatchTrace(actualTrace, trace).pass).toBe(true);
+expect(actualTrace).toMatchTrace(trace);
 interceptTrace(cy, '/api/chat', trace);
 ```
 
-Node에서는 readTrace로, 브라우저에서는 JSONL을 읽어 Trace를 전달하세요. 매칭되지 않은 fetch는 명시적으로 fallback을 주지 않으면 실패합니다. afterEach에서 vi.unstubAllGlobals로 원래 fetch를 복구하세요. expect.extend는 런타임 등록이며 타입 선언이 필요한 호출부는 toMatchTrace 함수를 직접 사용할 수 있습니다.
+Node에서는 readTrace로, 브라우저에서는 JSONL을 읽어 Trace를 전달하세요. 매칭되지 않은 fetch는 명시적으로 fallback을 주지 않으면 실패합니다. afterEach에서 vi.unstubAllGlobals로 원래 fetch를 복구하세요. streamscope/vitest를 가져오면 매처 타입도 확장됩니다. e2e/fixtures.browser.test.ts는 실제 Vitest browser-mode에서 녹화 파일의 일치와 불일치를 검증합니다.
 
 createTraceFetch는 실제 Response/ReadableStream에 녹화된 프레임을 보내며 speed:1로 시간 간격, AbortSignal로 중단을 지원합니다. toMatchTrace는 정규화 이벤트를 순서대로 비교해 첫 불일치 프레임의 0부터 시작하는 번호를 알려줍니다. 시간과 와이어 포맷은 비교하지 않습니다. Cypress 응답은 버퍼링되므로 프레임별 시간·네트워크 단절 재현은 Playwright 재생 서버를 사용하세요.
 
 OpenAI Assistants의 thread.run.*, thread.message.delta, 도구 인자 델타와 LangGraph SDK의 metadata, messages/messages-tuple, end, error SSE 이벤트를 정규화합니다. LangGraph의 values/updates 등 다른 모드는 기존 generic 처리입니다. 기존 SSE/NDJSON은 유지합니다. 외부 API를 호출하지 않고 녹화 JSONL과 Chromium에서 통과·실패를 재현합니다.
 
-검증: npm run verify && npm run test:e2e
+검증: npm run verify && npm run test:e2e && npm run test:browser
