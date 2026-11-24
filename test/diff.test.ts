@@ -200,3 +200,10 @@ it('reports completed argument changes at the real string field, without interna
  a.frames[0]!.event.argsDelta='{"a":1}';b.frames[0]!.event.argsDelta='{"a":2}';
  expect(diffTraces(a,b).matched[0]?.payload).toEqual([{path:'/argsDelta',before:'{"a":1}',after:'{"a":2}'}]);
 });
+
+
+it('reports completion-only changes without inventing an identical argument delta',()=>{
+ const a=trace([{id:'tool'}]),b=trace([{id:'tool'}]);for(const t of [a,b])Object.assign(t.frames[0]!.event,{type:'tool-call-delta',argsDelta:'{"a":1}'});
+ b.frames[0]!.event.complete=true;const changes=diffTraces(a,b).matched[0]!.payload;
+ expect(changes.map(c=>c.path)).toEqual(['/complete']);
+});
