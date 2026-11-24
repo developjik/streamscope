@@ -350,7 +350,7 @@ payload change. Those strings may still flag whitespace/key-order changes.
 ```sh
 streamscope serve --target http://localhost:3000
 # recording proxy: http://127.0.0.1:8787
-# session list:    http://127.0.0.1:8788/
+# session list:    use the exact panel URL printed by serve (includes a random access token)
 ```
 
 Point the app/client at the recording proxy. Open the separate panel URL, refresh
@@ -361,7 +361,7 @@ Only completed files in immediate session directories under `--out` are listed;
 invalid/unavailable traces are marked rather than crashing the session list.
 
 `serve` accepts the existing recording flags, `--speed`, `--port` (proxy), and
-`--panel-port` (list/replay). Both ports bind only to 127.0.0.1. Use port 0 for
+`--panel-port` (list/replay). Both ports bind only to 127.0.0.1. The panel URL contains a fresh random access token per process; keep that URL private. Bare-port requests cannot list or read sessions. Use port 0 for
 an OS-assigned port. Ctrl-C/SIGTERM closes both servers and releases the session
 root lock. Startup errors include the conflicting address and close any listener
 already started. One serve process may use a root at a time. After a crash,
@@ -371,7 +371,7 @@ has stopped. Existing `record` and `replay` commands remain available unchanged.
 The list shows up to the newest 500 directory names. Per-session traces are
 limited to 10MB; symlink directories/files, traversal, and files outside the root
 are rejected. Large/unavailable traces remain on disk for existing CLI tools.
-Refresh is manual: a session appears after the recording response finishes and
+An active recorder leaves a .recording marker; partial/crashed recordings with that marker cannot be replayed here. Legacy traces without a marker are accepted, so do not run an older recorder concurrently against this root. Refresh is manual: a session appears after the recording response finishes and
 its trace is written. The proxy forwards live requests and records their stream
 contents; header redaction stays on by default, but body contents may still be
 sensitive. Use only with trusted local clients and upstreams.
