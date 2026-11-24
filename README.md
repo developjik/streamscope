@@ -340,3 +340,7 @@ removals by design. Provider fragment indices are scoped by step/message ID.
 Completed valid JSON argument strings are compared structurally; partial argument
 fragments stay byte-sensitive. HTML output may not overwrite either input trace
 or the baseline manifest (symlink and hardlink aliases are also rejected).
+
+Argument JSON numeric normalization is conservative: fractional and unsafe
+integer values keep the original argument string, so rounding cannot hide a
+payload change. Those strings may still flag whitespace/key-order changes.
