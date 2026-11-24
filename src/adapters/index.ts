@@ -166,7 +166,7 @@ class Adapter implements StreamAdapter {
       this.observeProtocol(classified.protocol);
       if (events.length === 0) continue;
       events.forEach((event, index) => {
-        frames.push({ raw: index === 0 ? message.raw : this.wrap(encodeEvent(event, this.protocol)), event });
+        frames.push({ raw: events.length > 1 ? this.encode(event) : message.raw, event });
       });
     }
     return frames;
