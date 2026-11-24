@@ -139,6 +139,29 @@ describe('applyFaults', () => {
     expect(input[0]?.event.argsDelta).toBe('{"title":"x","n":1}');
   });
 
+  it('targets recorded positions even when sequence numbers repeat', () => {
+    const input = frames(5).map((frame) => ({ ...frame, seq: 7 }));
+    const result = applyFaults(input, parseScenario('drop(1),drop(3),dup(2),slow(9,4),reorder(0,4)'), { meta });
+    expect(result.frames.map((frame) => frame.event.delta)).toEqual(['4', '2', '2', '0']);
+    expect(result.frames[0]?.delay_ms).toBe(9);
+    expect(result.frames[3]?.delay_ms).toBeUndefined();
+    expect(result.frames.every((frame) => !('originalIndex' in frame))).toBe(true);
+    expect(input.every((frame) => frame.seq === 7)).toBe(true);
+  });
+
+  it('cuts at the recorded error boundary even when its frame was dropped', () => {
+    for (const scenario of ['drop(1),drop(3),error(429,3)', 'error(429,3),drop(3),drop(1)']) {
+      const result = applyFaults(frames(6), parseScenario(scenario), { meta });
+      expect(result.frames.map((frame) => frame.event.delta ?? frame.event.type)).toEqual(['0', '2', 'error']);
+      expect(result.status).toBe(429);
+    }
+  });
+
+  it('applies an error boundary to original positions after reorder and dup', () => {
+    const result = applyFaults(frames(6), parseScenario('drop(3),dup(2),reorder(0,5),error(429,3)'), { meta });
+    expect(result.frames.map((frame) => frame.event.delta ?? frame.event.type)).toEqual(['1', '2', '2', '0', 'error']);
+  });
+
   it('duplicates a frame right after the original', () => {
     const result = applyFaults(frames(3), parseScenario('dup(1)'), { meta });
     expect(result.frames.map((f) => f.event.delta)).toEqual(['0', '1', '1', '2']);
