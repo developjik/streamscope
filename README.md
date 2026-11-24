@@ -279,3 +279,7 @@ interceptTrace(cy, '/api/chat', trace);
 SSE provider adapters recognize OpenAI Assistants `thread.run.*`, `thread.message.delta`, and tool argument deltas, plus LangGraph SDK `metadata`, `messages`/`messages-tuple`, `end`, and `error` events. Message text, tool chunks, run completion and errors become normalized trace events. These adapters cover these documented stream forms, not every provider mode (for example LangGraph values/updates remain generic). Existing SSE and NDJSON framing remains supported.
 
 Validation: `npm run verify && npm run test:e2e && npm run test:browser`. Runner tests read a recorded JSONL file, prove passing/failing frame comparisons, and import the built fixture in a real Chromium page. The Vitest browser-mode example in `e2e/fixtures.browser.test.ts` also reads the real recording and asserts both match and mismatch. No external provider API is called.
+
+## Development baseline (DEV-128)
+
+Use Node.js 22.12.0 (`.nvmrc`) for development and CI. Vitest 5.1.1 requires Node 22.12+ on its supported release lines; Node 20.19 is outside its declared development support range. It may execute there, but CI does not treat that as supported test-runner usage. This development requirement does not change the package engine declaration. Runtime compatibility must be checked using the built package, separately from the test runner. TypeScript 7.0.2 is the development compiler baseline.
