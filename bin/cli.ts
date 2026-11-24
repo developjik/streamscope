@@ -9,14 +9,14 @@
  */
 import { createHash } from 'node:crypto';
 import { diffTraces, diffViolations, formatTraceDiff, parseDiffGates, renderDiffHtml } from '../src/diff.js';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyFaults, FaultSyntaxError, defaultEncoder, formatScenario, parseScenario } from '../src/faults.js';
 import { startRecordingProxy } from '../src/proxy.js';
 import { startReplayServer } from '../src/replay.js';
-import { formatSummary, readTrace, resolveTracePath, summarize, traceToJsonl } from '../src/trace.js';
+import { formatSummary, parseTrace, readTrace, resolveTracePath, summarize, traceToJsonl } from '../src/trace.js';
 import { renderPanelHtml } from '../src/ui/panel.js';
 import type { Trace } from '../src/types.js';
 
@@ -202,7 +202,7 @@ Inject
   streamscope inject <trace> --with "truncate_tool_args(12),error(429)" -o out.jsonl
 
 Diff
-  streamscope diff <before> <after> [--fail-on removed,payload,latency>200ms] [--json] [--html diff.html]
+  streamscope diff <before> <after> [--fail-on 'removed,payload,latency>200ms'] [--json] [--html diff.html]
   streamscope diff <after> --baseline <trace>
 
 Inspect
@@ -256,7 +256,7 @@ is written to <out>/<session>/events.jsonl.`;
 
   Without -o the result is written next to the input as <session>.injected.jsonl.`;
     case 'diff':
-      return `streamscope diff <before> <after> [--fail-on added,removed,payload,count,latency>200ms] [--json] [--html diff.html]\nWith one trace, use --baseline <trace> or .streams/baseline.json containing {path,sha256}. Paths in the manifest are relative to the manifest directory.\nIdentity-less events match by ordinal; latency is elapsed frame time.`;
+      return `streamscope diff <before> <after> [--fail-on 'added,removed,payload,count,latency>200ms'] [--json] [--html diff.html]\nWith one trace, use --baseline <trace> or .streams/baseline.json containing {path,sha256}. Paths in the manifest are relative to the manifest directory.\nIdentity-less events match by ordinal; latency is elapsed frame time.`;
     case 'inspect':
       return `streamscope inspect — summarize a trace
 
@@ -510,12 +510,22 @@ async function runDiff(parsed: Parsed, io: CliIO): Promise<number> {
       expected = hash.toLowerCase();
     }
   }
-  if (expected) {
-    const data = readFileSync(path.resolve(io.cwd, resolveTracePath(base!)));
-    if (createHash('sha256').update(data).digest('hex') !== expected) throw new UsageError('baseline SHA-256 mismatch');
-  }
-  const before = await loadDiffTrace(base, io),
+  const before = await loadDiffTrace(base, io, expected),
     after = await loadDiffTrace(head, io);
+  const html = flag(parsed, 'html');
+  if (html) {
+    const output = path.resolve(io.cwd, html);
+    for (const input of [before.path!, after.path!, path.resolve(io.cwd, '.streams/baseline.json')]) {
+      if (
+        output === input ||
+        (existsSync(output) &&
+          existsSync(input) &&
+          (realpathSync(output) === realpathSync(input) ||
+            (statSync(output).dev === statSync(input).dev && statSync(output).ino === statSync(input).ino)))
+      )
+        throw new UsageError('--html must not overwrite an input trace or baseline manifest');
+    }
+  }
   const result = diffTraces(before, after),
     raw = flag(parsed, 'fail-on');
   const violations = diffViolations(result, raw === undefined ? [] : parseDiffGates(raw));
@@ -525,7 +535,6 @@ async function runDiff(parsed: Parsed, io: CliIO): Promise<number> {
       ? JSON.stringify(output, null, 2)
       : formatTraceDiff(result) + (violations.length ? `\nfailed gates: ${violations.join(', ')}` : '')) + '\n',
   );
-  const html = flag(parsed, 'html');
   if (html) {
     const out = path.resolve(io.cwd, html);
     await mkdir(path.dirname(out), { recursive: true });
@@ -535,12 +544,14 @@ async function runDiff(parsed: Parsed, io: CliIO): Promise<number> {
   return violations.length ? 1 : 0;
 }
 
-async function loadDiffTrace(input: string | undefined, io: CliIO): Promise<Trace> {
+async function loadDiffTrace(input: string | undefined, io: CliIO, expected?: string): Promise<Trace> {
   if (!input) throw new UsageError('missing diff trace');
   const file = path.resolve(io.cwd, resolveTracePath(input));
-  const lines = readFileSync(file, 'utf8')
-    .split(/\r?\n/)
-    .filter((line) => line.trim());
+  const bytes = readFileSync(file);
+  if (expected && createHash('sha256').update(bytes).digest('hex') !== expected)
+    throw new UsageError('baseline SHA-256 mismatch');
+  const text = bytes.toString('utf8');
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
   if (!lines.length) throw new UsageError(`empty diff trace: ${file}`);
   const records = lines.map((line, i) => {
     try {
@@ -577,5 +588,5 @@ async function loadDiffTrace(input: string | undefined, io: CliIO): Promise<Trac
       throw new UsageError(`invalid diff frame at ${file}:${i + 2}`);
     seq.add(frame.seq as number);
   }
-  return readTrace(file);
+  return parseTrace(text, file);
 }
