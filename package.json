@@ -68,7 +68,11 @@
     "demo": "node demo/server.mjs",
     "verify": "npm run typecheck && npm test && npm run build",
     "test:coverage": "vitest run --coverage",
-    "test:browser": "vitest run --config vitest.browser.config.ts"
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "playground:build": "vite build --config apps/playground/vite.config.mjs",
+    "playground:dev": "vite --config apps/playground/vite.config.mjs",
+    "playground:typecheck": "tsc -p apps/playground/tsconfig.json",
+    "test:playground": "node e2e/playground.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -78,6 +82,7 @@
     "playwright-core": "^1.65.1",
     "tsup": "^9.0.0",
     "typescript": "^7.0.2",
+    "vite": "^8.3.8",
     "vitest": "^5.1.1"
   }
 }
