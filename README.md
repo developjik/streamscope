@@ -251,7 +251,6 @@ node scripts/record-demo.mjs        # re-record demo/traces/*.jsonl through the 
 ## Roadmap
 
 - `streamscope serve` — record + replay in one process (a session list panel).
-- Diff two traces frame by frame (`streamscope diff a.jsonl b.jsonl`).
 - Custom header/body redaction rules for traces that get committed (the built-in credential mask ships in 0.1.1).
 
 ## License
@@ -285,3 +284,51 @@ Validation: `npm run verify && npm run test:e2e && npm run test:browser`. Runner
 Use Node.js 22.18.0 (`.nvmrc`) for development and CI. Vitest 5.1.1 requires Node 22.12+ on its supported release lines; Node 20.19 is outside its declared development support range. It may execute there, but CI does not treat that as supported test-runner usage. This development requirement does not change the package engine declaration. Runtime compatibility must be checked using the built package, separately from the test runner. TypeScript 7.0.2 is the development compiler baseline.
 
 Development minimum exception: tsup9 requires Node22.x from22.18.0. This does not change consumer runtime engines.
+
+## Trace diff and regression gates
+
+```sh
+streamscope diff before.jsonl after.jsonl
+streamscope diff before.jsonl after.jsonl --fail-on 'added,removed,payload,latency>200ms,count'
+streamscope diff before.jsonl after.jsonl --json --html reports/diff.html
+streamscope diff after.jsonl --baseline before.jsonl
+```
+
+With one trace and no explicit baseline, `.streams/baseline.json` is read:
+
+```json
+{"path":"main/events.jsonl","sha256":"<64-character SHA-256 of the trace file bytes>"}
+```
+
+The path is relative to the manifest directory. `sha` is accepted as an alias
+for `sha256`. The hash is verified before comparing; no baseline is created or
+updated implicitly. Get a hash with `sha256sum .streams/main/events.jsonl`.
+
+Matching uses event type + event ID (including normalized tool-call IDs), or
+native toolCallId/inputIndex/input_index/index when present, plus an occurrence
+counter for repeated deltas. Without an identity, absolute frame ordinal is
+used. Inserting an anonymous event can therefore appear as several payload
+changes; this is positional alignment, not semantic inference. Reorder compares
+the relative rank of matched events, so inserting an identified event alone
+is not a reorder. Added and removed events report their own indices.
+
+Payload changes compare normalized event objects recursively, including native
+`data`, with JSON Pointer key paths. JSON object key order is ignored. Wire
+whitespace and frame `seq` are not payload changes. Elapsed `t_ms` deltas are
+reported per matched frame: these are cumulative stream times, not processing
+durations. A latency gate fails only for a positive delta strictly greater
+than its threshold. Equal or faster frames do not fail. Count compares total
+frame counts, so one addition and one removal does not trigger count alone.
+
+Different adapter/protocol/framing metadata, invalid frame metadata or truncated
+JSONL is rejected. Identical traces print `no differences`. Exit codes are 0
+for successful comparison with no gate violations (even if differences exist),
+1 for gate violations or I/O errors, and 2 for invalid input/options. JSON
+includes `violations`; HTML embeds sandboxed before/after timeline viewers.
+The HTML contains trace payloads, so handle it like the source recordings.
+
+See [`examples/ci/trace-diff.yml`](examples/ci/trace-diff.yml) for a two-job PR
+workflow that downloads a base-commit recording artifact and fails on removed
+frames. It uses the committed demo trace as a runnable placeholder; replace
+both copy steps with the same deterministic application recording command.
+It does not use elevated pull_request_target permissions or release packages.
