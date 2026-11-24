@@ -110,10 +110,10 @@ export async function startReplayServer(options: ReplayServerOptions): Promise<R
   const plan = prepareReplay(trace, options);
 
   const server = http.createServer((req, res) => {
-    void handle(req, res, plan, trace, options);
+    void handleReplayRequest(req, res, plan, trace, options).catch(error => { if (res.headersSent) res.destroy(); else { res.statusCode = 500; res.end(String(error)); } });
   });
 
-  await new Promise<void>((resolve) => server.listen(options.port ?? 0, options.host ?? '127.0.0.1', resolve));
+  await new Promise<void>((resolve, reject) => { const fail = (error: Error) => reject(new Error(`streamscope: cannot listen on ${options.host ?? '127.0.0.1'}:${options.port ?? 0}: ${error.message}`)); server.once('error', fail); server.listen(options.port ?? 0, options.host ?? '127.0.0.1', () => { server.off('error', fail); resolve(); }); });
   const address = server.address() as AddressInfo;
   const base = `http://${options.host ?? '127.0.0.1'}:${address.port}`;
   return {
@@ -130,7 +130,7 @@ export async function startReplayServer(options: ReplayServerOptions): Promise<R
   };
 }
 
-async function handle(
+export async function handleReplayRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   plan: ReplayPlan,
