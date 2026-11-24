@@ -67,10 +67,12 @@
     "test:e2e": "node e2e/run-e2e.mjs && node e2e/runner-fixtures.mjs",
     "demo": "node demo/server.mjs",
     "verify": "npm run typecheck && npm test && npm run build",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@vitest/browser-playwright": "^5.1.1",
     "@vitest/coverage-v8": "^5.1.1",
     "playwright": "^1.65.1",
     "playwright-core": "^1.65.1",
