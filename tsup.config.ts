@@ -4,6 +4,8 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     playwright: 'src/playwright.ts',
+    vitest: 'src/vitest.ts',
+    cypress: 'src/cypress.ts',
     cli: 'bin/cli.ts',
   },
   format: ['esm'],
