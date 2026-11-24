@@ -87,6 +87,58 @@ describe('applyFaults', () => {
     expect(range.frames.map((f) => f.event.delta)).toEqual(['0', '4']);
   });
 
+  it.each([
+    'drop(1),drop(3)',
+    'drop(3),drop(1)',
+    'drop(1..1),drop(3..3)',
+    'drop(3..3),drop(1..1)',
+  ])('resolves multiple drops against original indices: %s', (scenario) => {
+    const result = applyFaults(frames(6), parseScenario(scenario), { meta });
+    expect(result.frames.map((frame) => frame.event.delta)).toEqual(['0', '2', '4', '5']);
+    expect(result.effects.every((effect) => effect.endsWith('removed 1 frame(s)'))).toBe(true);
+  });
+
+  it('treats repeated and overlapping drops as a union without shifting later ranges', () => {
+    const result = applyFaults(frames(8), parseScenario('drop(1..3),drop(2..4),drop(1)'), { meta });
+    expect(result.frames.map((frame) => frame.event.delta)).toEqual(['0', '5', '6', '7']);
+    expect(result.effects).toEqual([
+      'drop(1..3): removed 3 frame(s)',
+      'drop(2..4): removed 1 frame(s)',
+      'drop(1): removed 0 frame(s)',
+    ]);
+  });
+
+  it('uses recorded positions even when frame sequence numbers are not contiguous', () => {
+    const input = frames(6).map((frame, index) => ({ ...frame, seq: 100 + index * 7 }));
+    const result = applyFaults(input, parseScenario('drop(1),drop(3)'), { meta });
+    expect(result.frames.map((frame) => frame.event.delta)).toEqual(['0', '2', '4', '5']);
+    expect(input.map((frame) => frame.seq)).toEqual([100, 107, 114, 121, 128, 135]);
+  });
+
+  it('does not resurrect a dropped frame when dup targets the same recorded frame', () => {
+    for (const scenario of ['drop(1),dup(1)', 'dup(1),drop(1)']) {
+      const result = applyFaults(frames(4), parseScenario(scenario), { meta });
+      expect(result.frames.map((frame) => frame.event.delta)).toEqual(['0', '2', '3']);
+      expect(result.effects).toContain('dup(1): skipped dropped frame #1');
+    }
+  });
+
+  it('preserves original targets across drop, dup, reorder, and slow', () => {
+    const a = applyFaults(frames(6), parseScenario('drop(1),drop(3),dup(4),reorder(2,5),slow(10,2)'), { meta });
+    const b = applyFaults(frames(6), parseScenario('slow(10,2),reorder(2,5),dup(4),drop(3),drop(1)'), { meta });
+    expect(a.frames.map((frame) => frame.event.delta)).toEqual(['0', '5', '4', '4', '2']);
+    expect(b.frames).toEqual(a.frames);
+    expect(a.frames.at(-1)?.delay_ms).toBe(10);
+  });
+
+  it('duplicates already truncated tool arguments without restoring the original data', () => {
+    const input = toolFrames();
+    const result = applyFaults(input, parseScenario('truncate_tool_args(6,0),dup(0)'), { meta });
+    expect(result.frames.slice(0, 2).map((frame) => frame.event.argsDelta)).toEqual(['{"titl', '{"titl']);
+    expect(result.frames[0]?.raw).toBe(result.frames[1]?.raw);
+    expect(input[0]?.event.argsDelta).toBe('{"title":"x","n":1}');
+  });
+
   it('duplicates a frame right after the original', () => {
     const result = applyFaults(frames(3), parseScenario('dup(1)'), { meta });
     expect(result.frames.map((f) => f.event.delta)).toEqual(['0', '1', '1', '2']);
