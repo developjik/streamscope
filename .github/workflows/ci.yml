@@ -36,6 +36,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Playground typecheck and build
+        run: npm run playground:typecheck && npm run playground:build
+
       - name: Unit tests
         run: npm test
 
@@ -71,6 +74,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Playground browser acceptance
+        run: npm run playground:build && npm run test:playground
 
       - name: Playwright fixture E2E
         run: npm run test:e2e
