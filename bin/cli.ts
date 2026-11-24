@@ -7,6 +7,8 @@
  *   streamscope inject .streams/<session> --with "dup(4)" -o checkout.broken.jsonl
  *   streamscope inspect .streams/<session> --html viewer.html
  */
+import { createHash } from 'node:crypto';
+import { diffTraces, diffViolations, formatTraceDiff, parseDiffGates, renderDiffHtml } from '../src/diff.js';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -30,7 +32,18 @@ const DEFAULT_IO: CliIO = {
   cwd: process.cwd(),
 };
 
-const BOOLEAN_FLAGS = new Set(['help', 'version', 'json', 'open', 'no-ui', 'print', 'quiet', 'force', 'frames', 'no-redact']);
+const BOOLEAN_FLAGS = new Set([
+  'help',
+  'version',
+  'json',
+  'open',
+  'no-ui',
+  'print',
+  'quiet',
+  'force',
+  'frames',
+  'no-redact',
+]);
 const VALUE_FLAGS = new Set([
   'target',
   'port',
@@ -43,8 +56,10 @@ const VALUE_FLAGS = new Set([
   'speed',
   'html',
   'url',
+  'baseline',
+  'fail-on',
 ]);
-const COMMANDS = ['record', 'replay', 'inject', 'inspect', 'help', 'version'] as const;
+const COMMANDS = ['record', 'replay', 'inject', 'inspect', 'diff', 'help', 'version'] as const;
 type Command = (typeof COMMANDS)[number];
 
 interface Parsed {
@@ -78,7 +93,9 @@ export function readVersion(root = packageRoot()): string {
   try {
     const file = path.join(root, 'package.json');
     if (existsSync(file)) {
-      const pkg = JSON.parse(readFileSync(file, 'utf8')) as { version?: unknown };
+      const pkg = JSON.parse(readFileSync(file, 'utf8')) as {
+        version?: unknown;
+      };
       if (typeof pkg.version === 'string') return pkg.version;
     }
   } catch {
@@ -184,6 +201,10 @@ Replay
 Inject
   streamscope inject <trace> --with "truncate_tool_args(12),error(429)" -o out.jsonl
 
+Diff
+  streamscope diff <before> <after> [--fail-on removed,payload,latency>200ms] [--json] [--html diff.html]
+  streamscope diff <after> --baseline <trace>
+
 Inspect
   streamscope inspect <trace> [--json] [--html viewer.html]
 
@@ -234,6 +255,8 @@ is written to <out>/<session>/events.jsonl.`;
   streamscope inject <trace> --with "<dsl>" [-o <out.jsonl>] [--print]
 
   Without -o the result is written next to the input as <session>.injected.jsonl.`;
+    case 'diff':
+      return `streamscope diff <before> <after> [--fail-on added,removed,payload,count,latency>200ms] [--json] [--html diff.html]\nWith one trace, use --baseline <trace> or .streams/baseline.json containing {path,sha256}. Paths in the manifest are relative to the manifest directory.\nIdentity-less events match by ordinal; latency is elapsed frame time.`;
     case 'inspect':
       return `streamscope inspect — summarize a trace
 
@@ -279,6 +302,8 @@ export async function run(argv: string[], io: CliIO = DEFAULT_IO): Promise<numbe
 
   try {
     switch (parsed.command as Command) {
+      case 'diff':
+        return await runDiff(parsed, io);
       case 'inspect':
         return await runInspect(parsed, io);
       case 'inject':
@@ -321,7 +346,9 @@ async function runInspect(parsed: Parsed, io: CliIO): Promise<number> {
     if (bool(parsed, 'frames')) {
       io.stdout('\n');
       for (const frame of trace.frames) {
-        io.stdout(`#${frame.seq}\t${frame.t_ms}ms\t${frame.event.type}\t${JSON.stringify(frame.event.delta ?? frame.event.argsDelta ?? frame.event.message ?? '')}\n`);
+        io.stdout(
+          `#${frame.seq}\t${frame.t_ms}ms\t${frame.event.type}\t${JSON.stringify(frame.event.delta ?? frame.event.argsDelta ?? frame.event.message ?? '')}\n`,
+        );
       }
     }
   }
@@ -346,10 +373,17 @@ async function runInject(parsed: Parsed, io: CliIO): Promise<number> {
   });
   const meta = {
     ...trace.meta,
-    notes: { ...(trace.meta.notes ?? {}), inject: formatScenario(faults), outcome: result.outcome },
+    notes: {
+      ...(trace.meta.notes ?? {}),
+      inject: formatScenario(faults),
+      outcome: result.outcome,
+    },
   };
   const injected: Trace = { meta, frames: result.frames, path: trace.path };
-  const defaultOut = path.join(path.dirname(resolveTracePath(path.resolve(io.cwd, parsed.positionals[0] as string))), `${trace.meta.session}.injected.jsonl`);
+  const defaultOut = path.join(
+    path.dirname(resolveTracePath(path.resolve(io.cwd, parsed.positionals[0] as string))),
+    `${trace.meta.session}.injected.jsonl`,
+  );
   const out = path.resolve(io.cwd, flag(parsed, 'out') ?? defaultOut);
   await writeFile(out, traceToJsonl(injected), 'utf8');
   io.stdout(`wrote ${out}\n`);
@@ -380,7 +414,9 @@ async function runRecord(parsed: Parsed, io: CliIO): Promise<number> {
     onSession: () => undefined,
   });
   if (bool(parsed, 'no-redact')) {
-    io.stderr('streamscope: warning: recording without header redaction — Authorization, Cookie, Set-Cookie, X-API-Key and Proxy-Authorization are stored verbatim\n');
+    io.stderr(
+      'streamscope: warning: recording without header redaction — Authorization, Cookie, Set-Cookie, X-API-Key and Proxy-Authorization are stored verbatim\n',
+    );
   }
   io.stdout(`streamscope proxy: ${proxy.url} -> ${target}\n`);
   io.stdout(`traces: ${out}/<session>/events.jsonl  (Ctrl-C to stop)\n`);
@@ -447,4 +483,99 @@ if (isMain) {
       process.stderr.write(`streamscope: ${(error as Error).stack ?? String(error)}\n`);
       process.exitCode = 1;
     });
+}
+
+async function runDiff(parsed: Parsed, io: CliIO): Promise<number> {
+  if (parsed.positionals.length < 1 || parsed.positionals.length > 2)
+    throw new UsageError('diff needs <before> <after>, or <after> with a baseline');
+  let base: string | undefined, head: string | undefined, expected: string | undefined;
+  const explicit = flag(parsed, 'baseline');
+  if (parsed.positionals.length === 2) {
+    if (explicit) throw new UsageError('--baseline cannot be combined with two traces');
+    [base, head] = parsed.positionals;
+  } else {
+    head = parsed.positionals[0];
+    if (explicit) base = explicit;
+    else {
+      const manifest = path.resolve(io.cwd, '.streams/baseline.json');
+      const record = JSON.parse(readFileSync(manifest, 'utf8')) as {
+        path?: unknown;
+        sha256?: unknown;
+        sha?: unknown;
+      };
+      const hash = record.sha256 ?? record.sha;
+      if (typeof record.path !== 'string' || typeof hash !== 'string' || !/^[a-f0-9]{64}$/i.test(hash))
+        throw new UsageError('baseline manifest needs path and 64-character sha256 (sha alias accepted)');
+      base = path.resolve(path.dirname(manifest), record.path);
+      expected = hash.toLowerCase();
+    }
+  }
+  if (expected) {
+    const data = readFileSync(path.resolve(io.cwd, resolveTracePath(base!)));
+    if (createHash('sha256').update(data).digest('hex') !== expected) throw new UsageError('baseline SHA-256 mismatch');
+  }
+  const before = await loadDiffTrace(base, io),
+    after = await loadDiffTrace(head, io);
+  const result = diffTraces(before, after),
+    raw = flag(parsed, 'fail-on');
+  const violations = diffViolations(result, raw === undefined ? [] : parseDiffGates(raw));
+  const output = { ...result, violations };
+  io.stdout(
+    (bool(parsed, 'json')
+      ? JSON.stringify(output, null, 2)
+      : formatTraceDiff(result) + (violations.length ? `\nfailed gates: ${violations.join(', ')}` : '')) + '\n',
+  );
+  const html = flag(parsed, 'html');
+  if (html) {
+    const out = path.resolve(io.cwd, html);
+    await mkdir(path.dirname(out), { recursive: true });
+    await writeFile(out, renderDiffHtml(result, before, after), 'utf8');
+    io.stderr(`diff report: ${out}\n`);
+  }
+  return violations.length ? 1 : 0;
+}
+
+async function loadDiffTrace(input: string | undefined, io: CliIO): Promise<Trace> {
+  if (!input) throw new UsageError('missing diff trace');
+  const file = path.resolve(io.cwd, resolveTracePath(input));
+  const lines = readFileSync(file, 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => line.trim());
+  if (!lines.length) throw new UsageError(`empty diff trace: ${file}`);
+  const records = lines.map((line, i) => {
+    try {
+      return JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      throw new UsageError(`invalid JSON at ${file}:${i + 1}`);
+    }
+  });
+  const meta = records[0];
+  if (
+    !meta ||
+    meta.kind !== 'meta' ||
+    meta.v !== 1 ||
+    typeof meta.adapter !== 'string' ||
+    !meta.adapter ||
+    typeof meta.protocol !== 'string' ||
+    typeof meta.framing !== 'string'
+  )
+    throw new UsageError(`invalid trace metadata: ${file}`);
+  const seq = new Set<number>();
+  for (const [i, frame] of records.slice(1).entries()) {
+    const event = frame?.event as Record<string, unknown> | undefined;
+    if (
+      !frame ||
+      !Number.isInteger(frame.seq) ||
+      seq.has(frame.seq as number) ||
+      typeof frame.t_ms !== 'number' ||
+      !Number.isFinite(frame.t_ms) ||
+      frame.t_ms < 0 ||
+      typeof frame.raw !== 'string' ||
+      !event ||
+      typeof event.type !== 'string'
+    )
+      throw new UsageError(`invalid diff frame at ${file}:${i + 2}`);
+    seq.add(frame.seq as number);
+  }
+  return readTrace(file);
 }
