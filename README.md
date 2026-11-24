@@ -221,7 +221,7 @@ The handle exposes `plan` (frames + effects + outcome), `url`/`streamUrl`, `requ
 | HTTP/1.1 streaming responses (SSE, NDJSON, JSON, text) | H2/H3 multiplexed streams |
 | AI SDK UI message stream, legacy data stream, AG-UI, generic JSON deltas | protobuf/gRPC or binary frames |
 | Node 20/22, any framework behind an HTTP server | browser-only apps with no Node server (use `--target` at whatever origin serves the stream) |
-| Playwright (any version with `page.route`) | Cypress/Vitest browser mode fixtures (not written yet) |
+| Playwright (any version with `page.route`) | Cypress buffered responses / Vitest fetch fixtures |
 
 ## Limitations (on purpose, documented)
 
@@ -252,10 +252,32 @@ node scripts/record-demo.mjs        # re-record demo/traces/*.jsonl through the 
 
 - `streamscope serve` — record + replay in one process (a session list panel).
 - Diff two traces frame by frame (`streamscope diff a.jsonl b.jsonl`).
-- Cypress / Vitest browser-mode fixtures on top of the same replay server.
-- Extra adapters: OpenAI Assistants stream events, LangGraph SDK events.
 - Custom header/body redaction rules for traces that get committed (the built-in credential mask ships in 0.1.1).
 
 ## License
 
 MIT © jungingwon ([developjik](https://github.com/developjik))
+
+## Runner fixtures and provider events (DEV-123)
+
+The package name remains `streamscope`. These exports are available from source builds; this PR does not publish npm.
+
+```ts
+import { createTraceFetch, toMatchTrace } from 'streamscope/vitest';
+import { interceptTrace } from 'streamscope/cypress';
+expect.extend({ toMatchTrace });
+// Load a recorded Trace with readTrace() in Node, or parse JSONL in your browser fixture.
+vi.stubGlobal('fetch', createTraceFetch(trace, { url: '/api/chat' }));
+// Unmatched calls reject unless you explicitly provide fallback: fetch.
+// Call vi.unstubAllGlobals() in afterEach to restore the real fetch.
+// Runtime matcher registration works with expect.extend; typed callers can use
+// toMatchTrace(actualTrace, trace) directly and inspect pass/message().
+expect(toMatchTrace(actualTrace, trace).pass).toBe(true);
+interceptTrace(cy, '/api/chat', trace);
+```
+
+`createTraceFetch` returns a real Response/ReadableStream with recorded wire frames, optional timing (`speed: 1`) and AbortSignal support. `toMatchTrace` compares normalized events in order and reports the first zero-based mismatching frame. Timestamps/wire formatting are intentionally not compared. Cypress replies are buffered: they do not emulate per-frame timing or network disconnects. Use the Playwright replay server for those cases.
+
+SSE provider adapters recognize OpenAI Assistants `thread.run.*`, `thread.message.delta`, and tool argument deltas, plus LangGraph SDK `metadata`, `messages`/`messages-tuple`, `end`, and `error` events. Message text, tool chunks, run completion and errors become normalized trace events. These adapters cover these documented stream forms, not every provider mode (for example LangGraph values/updates remain generic). Existing SSE and NDJSON framing remains supported.
+
+Validation: `npm run verify && npm run test:e2e`. Runner tests read a recorded JSONL file, prove passing/failing frame comparisons, and import the built fixture in a real Chromium page. No external provider API is called.
