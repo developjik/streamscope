@@ -133,6 +133,8 @@ Indices are **0-based frame indices of the recorded trace**, so the order you wr
 
 Scenarios combine with commas or semicolons: `--inject "drop(3), dup(7), disconnect_at(0.62)"`. Invalid faults fail with the reason (`drop(99)` → `out of range — the trace has 16 frame(s)`), never silently.
 
+All indices refer to 0-based positions in the recorded trace, even when sequence numbers repeat. Multiple `drop` faults remove the union of original positions; repeated or overlapping ranges do not count removed frames twice. `dup` skips dropped frames and copies surviving transformed frames, including truncated arguments. `error(status,index)` retains only surviving original positions below the index, even if its target was dropped or reordered. Fault kinds have a fixed application order; overlapping reorders within the same kind retain their written order.
+
 Bake a scenario into a new fixture:
 
 ```bash

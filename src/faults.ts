@@ -16,8 +16,12 @@
  *   reorder(2,5)             swap frames #2 and #5
  *
  * Indices are 0-based and always refer to frames of the *recorded* trace, so
- * the order faults are written in never changes the result. Application order
- * is fixed: truncate → drop → dup → reorder → disconnect → error → slow.
+ * drop order does not change the removed set. Application order is fixed: truncate → drop → dup → reorder → disconnect → error → slow.
+ * Drops form a union of original positions; dup skips dropped frames and
+ * copies the surviving transformed frame (including truncated arguments).
+ * Same-kind non-commuting faults (for example overlapping reorders) retain
+ * their written order. Indexed errors keep surviving original positions below
+ * the boundary, including when the boundary frame was dropped or reordered.
  */
 import { formatSseMessage } from './adapters/sse.js';
 import { encodeEvent } from './adapters/protocols.js';
@@ -223,15 +227,16 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     }
   };
 
-  let working: InjectedFrame[] = frames.map((frame) => ({ ...frame, event: { ...frame.event } }));
+  type WorkingFrame = InjectedFrame & { originalIndex: number };
+  let working: WorkingFrame[] = frames.map((frame, originalIndex) => ({ ...frame, event: { ...frame.event }, originalIndex }));
 
   // 1. truncate_tool_args
   for (const fault of faults) {
     if (fault.kind !== 'truncate_tool_args') continue;
     check(fault.index, 'truncate_tool_args');
     let touched = 0;
-    working = working.map((frame, index) => {
-      if (fault.index !== undefined && fault.index !== index) return frame;
+    working = working.map((frame) => {
+      if (fault.index !== undefined && fault.index !== frame.originalIndex) return frame;
       const args = frame.event.argsDelta;
       if (frame.event.type !== 'tool-call-delta' || !args) return frame;
       const cut = truncateUtf8(args, fault.atByte);
@@ -244,14 +249,15 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     effects.push(`truncate_tool_args(${fault.atByte}): cut ${touched} tool-argument fragment(s)`);
   }
 
-  // 2. drop
+  // 2. drop. Resolve each range against the recorded trace, never the
+  // shrinking working array. Overlapping drops therefore form a union.
   for (const fault of faults) {
     if (fault.kind !== 'drop') continue;
     const from = fault.from ?? fault.index ?? 0;
     const to = fault.to ?? from;
     if (fault.from === undefined) check(fault.index, 'drop');
     const before = working.length;
-    working = working.filter((_, index) => index < from || index > to);
+    working = working.filter((frame) => frame.originalIndex < from || frame.originalIndex > to);
     effects.push(`drop(${fault.from !== undefined ? `${from}..${to}` : from}): removed ${before - working.length} frame(s)`);
   }
 
@@ -259,12 +265,16 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
   for (const fault of faults) {
     if (fault.kind !== 'dup') continue;
     check(fault.index, 'dup');
-    const source = frames[fault.index];
-    if (!source) continue;
-    const at = working.findIndex((frame) => frame.seq === source.seq);
-    const copy: InjectedFrame = { ...source, event: { ...source.event } };
-    if (at === -1) working.push(copy);
-    else working.splice(at + 1, 0, copy);
+    const at = working.findIndex((frame) => frame.originalIndex === fault.index);
+    // Drop wins over dup. Duplicate the transformed surviving frame so any
+    // earlier argument truncation is preserved in both copies.
+    if (at === -1) {
+      effects.push(`dup(${fault.index}): skipped dropped frame #${fault.index}`);
+      continue;
+    }
+    const transformed = working[at]!;
+    const copy: WorkingFrame = { ...transformed, event: { ...transformed.event } };
+    working.splice(at + 1, 0, copy);
     effects.push(`dup(${fault.index}): frame #${fault.index} sent twice`);
   }
 
@@ -273,10 +283,8 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     if (fault.kind !== 'reorder') continue;
     check(fault.a, 'reorder');
     check(fault.b, 'reorder');
-    const seqA = frames[fault.a]?.seq;
-    const seqB = frames[fault.b]?.seq;
-    const indexA = working.findIndex((frame) => frame.seq === seqA);
-    const indexB = working.findIndex((frame) => frame.seq === seqB);
+    const indexA = working.findIndex((frame) => frame.originalIndex === fault.a);
+    const indexB = working.findIndex((frame) => frame.originalIndex === fault.b);
     if (indexA !== -1 && indexB !== -1) {
       const tmp = working[indexA]!;
       working[indexA] = working[indexB]!;
@@ -304,9 +312,8 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     const code = fault.status;
     if (fault.index !== undefined) {
       check(fault.index, 'error');
-      const seq = frames[fault.index]?.seq;
-      const at = working.findIndex((frame) => frame.seq === seq);
-      if (at !== -1) working = working.slice(0, at);
+      const boundary = fault.index;
+      working = working.filter((frame) => frame.originalIndex >= 0 && frame.originalIndex < boundary);
       effects.push(`error(${code},${fault.index}): kept frames #0..#${fault.index - 1} and failed with ${code}`);
     } else {
       effects.push(`error(${code}): stream finished with error ${code}`);
@@ -314,7 +321,7 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     const event: NormalizedEvent = { type: 'error', status: code, message: `streamscope injected error ${code}` };
     const raw = encode ? encode(event) : JSON.stringify(event);
     const t_ms = working.length > 0 ? working[working.length - 1]!.t_ms + 1 : 0;
-    working.push({ t_ms, seq: -1, raw, event, injected: true });
+    working.push({ t_ms, seq: -1, raw, event, injected: true, originalIndex: -1 });
     outcome = 'error';
     status = code;
   }
@@ -324,8 +331,7 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     if (fault.kind !== 'slow') continue;
     if (fault.index !== undefined) {
       check(fault.index, 'slow');
-      const seq = frames[fault.index]?.seq;
-      const target = working.find((frame) => frame.seq === seq);
+      const target = working.find((frame) => frame.originalIndex === fault.index);
       if (target) target.delay_ms = (target.delay_ms ?? 0) + fault.ms;
       effects.push(`slow(${fault.ms},${fault.index}): +${fault.ms} ms before frame #${fault.index}`);
     } else {
@@ -335,9 +341,7 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
   }
 
   // Renumber seq so duplicated/injected frames stay addressable in the UI.
-  working.forEach((frame, index) => {
-    frame.seq = index;
-  });
+  const result = working.map(({ originalIndex: _originalIndex, ...frame }, seq) => ({ ...frame, seq }));
 
-  return { frames: working, outcome, ...(status !== undefined ? { status } : {}), effects };
+  return { frames: result, outcome, ...(status !== undefined ? { status } : {}), effects };
 }
