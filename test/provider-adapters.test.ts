@@ -35,3 +35,13 @@ test('generic SSE error is not automatically mislabeled as LangGraph', () => {
   adapter.feed(frame('error', { message: 'generic' }));
   expect(adapter.protocol).not.toBe('langgraph');
 });
+
+test('provider fault encoding round-trips a mutated tool argument', async () => {
+  const { defaultEncoder } = await import('../src/faults.js');
+  for (const protocol of ['langgraph', 'openai-assistants'] as const) {
+    const encode = defaultEncoder({ framing: 'sse', protocol });
+    const adapter = createAdapter({ framing: 'sse', protocol });
+    const event = adapter.feed(encode({ type: 'tool-call-delta', id: 'tool', argsDelta: '{' })).find(frame => frame.event.type === 'tool-call-delta')!.event;
+    expect(event.argsDelta).toBe('{');
+  }
+});
