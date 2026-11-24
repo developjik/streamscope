@@ -43,6 +43,14 @@
     "./playwright": {
       "types": "./dist/playwright.d.ts",
       "import": "./dist/playwright.js"
+    },
+    "./vitest": {
+      "types": "./dist/vitest.d.ts",
+      "import": "./dist/vitest.js"
+    },
+    "./cypress": {
+      "types": "./dist/cypress.d.ts",
+      "import": "./dist/cypress.js"
     }
   },
   "files": [
@@ -56,7 +64,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node e2e/run-e2e.mjs",
+    "test:e2e": "node e2e/run-e2e.mjs && node e2e/runner-fixtures.mjs",
     "demo": "node demo/server.mjs",
     "verify": "npm run typecheck && npm test && npm run build",
     "test:coverage": "vitest run --coverage"
