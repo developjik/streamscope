@@ -169,6 +169,12 @@ describe('applyFaults', () => {
     expect(result.status).toBe(503);
   });
 
+  it('keeps already recorded injected frames before an error boundary', () => {
+    const input = frames(4).map((frame, index) => ({ ...frame, injected: index === 1 }));
+    const result = applyFaults(input, parseScenario('error(503,3)'), { meta });
+    expect(result.frames.map(frame => frame.event.delta ?? frame.event.type)).toEqual(['0', '1', '2', 'error']);
+  });
+
   it('duplicates a frame right after the original', () => {
     const result = applyFaults(frames(3), parseScenario('dup(1)'), { meta });
     expect(result.frames.map((f) => f.event.delta)).toEqual(['0', '1', '1', '2']);
