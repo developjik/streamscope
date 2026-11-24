@@ -151,3 +151,37 @@ describe('provider identities and completed JSON args', () => {
     expect(diffTraces(a, b).matched[0]?.payload.length).toBeGreaterThan(0);
   });
 });
+
+describe('conservative argument numbers and scoped indices', () => {
+  it('does not hide unsafe integer or fractional argument changes', () => {
+    for (const [left, right] of [
+      ['9007199254740992', '9007199254740993'],
+      ['0.10000000000000001', '0.1'],
+      ['1.0000000000000001','1'],
+    ]) {
+      const a = trace([{ id: 'tool' }]),
+        b = trace([{ id: 'tool' }]);
+      for (const t of [a, b]) Object.assign(t.frames[0]!.event, { type: 'tool-call-delta', complete: true });
+      a.frames[0]!.event.argsDelta = `{"n":${left}}`;
+      b.frames[0]!.event.argsDelta = `{"n":${right}}`;
+      expect(diffViolations(diffTraces(a, b), parseDiffGates('payload'))).toEqual(['payload']);
+    }
+  });
+  it('keeps equal tool indices from different OpenAI steps or LangGraph messages distinct', () => {
+    for (const provider of ['openai', 'langgraph']) {
+      const a = trace([{}, {}]),
+        b = trace([{}]);
+      for (const [i, f] of a.frames.entries()) {
+        f.event.type = 'tool-call-delta';
+        f.event.data =
+          provider === 'openai'
+            ? { id: `step-${i}`, delta: { step_details: { tool_calls: [{ index: 0 }] } } }
+            : [{ id: `message-${i}`, tool_call_chunks: [{ index: 0 }] }];
+      }
+      b.frames[0]!.event = structuredClone(a.frames[1]!.event);
+      const d = diffTraces(a, b);
+      expect(d.removed[0]?.key).toContain(provider === 'openai' ? 'step-0' : 'message-0');
+      expect(d.matched[0]?.beforeIndex).toBe(1);
+    }
+  });
+});
