@@ -313,7 +313,7 @@ export function applyFaults(frames: TraceFrame[], faults: Fault[], options: Appl
     if (fault.index !== undefined) {
       check(fault.index, 'error');
       const boundary = fault.index;
-      working = working.filter((frame) => frame.originalIndex < boundary);
+      working = working.filter((frame) => !frame.injected && frame.originalIndex < boundary);
       effects.push(`error(${code},${fault.index}): kept frames #0..#${fault.index - 1} and failed with ${code}`);
     } else {
       effects.push(`error(${code}): stream finished with error ${code}`);
