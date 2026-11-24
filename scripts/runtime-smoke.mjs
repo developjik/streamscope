@@ -9,9 +9,10 @@ function run(command,args,cwd=root){const result=spawnSync(command,args,{cwd,enc
 try{
  const tar=JSON.parse(run('npm',['pack','--ignore-scripts','--json','--pack-destination',temp]))[0].filename;
  run('npm',['install','--omit=dev','--no-audit','--no-fund',join(temp,tar)],temp);
+ console.log(run('npm',['ls','--omit=dev','--depth=1'],temp));
  const installed=join(temp,'node_modules',pkg.name);
  const bins=typeof pkg.bin==='string'?{[pkg.name]:pkg.bin}:pkg.bin??{};
  if(Object.keys(bins).length){for(const bin of Object.values(bins))run(process.execPath,[resolve(installed,bin),'--help'],temp);}
- else run(process.execPath,['--input-type=module','-e',`await import(${JSON.stringify(pkg.name)});`],temp);
+ if(pkg.exports || pkg.main)run(process.execPath,['--input-type=module','-e',`await import(${JSON.stringify(pkg.name)});`],temp);
  console.log(`${pkg.name}: production install and built runtime smoke passed on ${process.version}`);
 }finally{rmSync(temp,{recursive:true,force:true});}
