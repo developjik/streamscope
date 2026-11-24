@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { expect,test } from 'vitest';
 import { startServe } from '../src/serve.js';
 import { startRecordingProxy } from '../src/proxy.js';
@@ -40,6 +40,7 @@ test('port conflicts reject clearly and release both proxy and root lock',async(
  }finally{await new Promise<void>(r=>blocker.close(()=>r()));await f.done();}
 });
 test('built serve CLI exits cleanly on SIGTERM and releases listeners and lock',async()=>{
+ execFileSync(process.platform==='win32'?'npm.cmd':'npm',['run','build'],{cwd:process.cwd(),stdio:'pipe'});
  const f=await fixture();const child=spawn(process.execPath,['dist/cli.js','serve','--target',f.target,'--port','0','--panel-port','0','--out',f.root,'--quiet'],{cwd:process.cwd(),stdio:['ignore','pipe','pipe']});
  let output='';child.stdout.on('data',d=>output+=d.toString());let error='';child.stderr.on('data',d=>error+=d.toString());
  try{
