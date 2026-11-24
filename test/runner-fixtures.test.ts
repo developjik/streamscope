@@ -51,3 +51,21 @@ describe('recording-backed runner fixtures', () => {
     expect(() => createTraceFetch(trace(), { speed: -1 })).toThrow();
   });
 });
+
+
+test('NDJSON fixture restores record separators for fetch and Cypress', async () => {
+  const t = parseTrace(await readFile('demo/traces/chat-ndjson.jsonl', 'utf8'));
+  const response = await createTraceFetch(t)('/chat');
+  const body = await response.text();
+  expect(body.trim().split('\n').map(line => JSON.parse(line))).toHaveLength(t.frames.length);
+  let actual = ''; const cy = { intercept: (_: string | RegExp, handler: (req: {reply: (response: {body: string}) => void}) => void) => handler({reply: response => {actual = response.body;}}) };
+  interceptTrace(cy, '/chat', t); expect(actual).toBe(body);
+});
+test('null-body statuses return a valid fetch response', async () => {
+  const t = trace(); t.meta.response = {status:204};t.frames=[];
+  expect((await createTraceFetch(t)('/chat')).body).toBeNull();
+});
+test('matcher ignores property order but not values', () => {
+  const t=trace();const other=structuredClone(t);other.frames[0]!.event={delta:'hello',type:'text-delta'};
+  expect(toMatchTrace(other,t).pass).toBe(true);
+});
