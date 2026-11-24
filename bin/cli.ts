@@ -529,7 +529,7 @@ async function runDiff(parsed: Parsed, io: CliIO): Promise<number> {
   if (html) {
     const out = path.resolve(io.cwd, html);
     await mkdir(path.dirname(out), { recursive: true });
-    await writeFile(out, renderDiffHtml(result, before, after), 'utf8');
+    await writeFile(out, renderDiffHtml(result, before, after, violations), 'utf8');
     io.stderr(`diff report: ${out}\n`);
   }
   return violations.length ? 1 : 0;
