@@ -207,12 +207,12 @@ export interface InjectedResult {
 /** Cut a UTF-8 string to at most `bytes` bytes without splitting a codepoint. */
 export function truncateUtf8(text: string, bytes: number): string {
   if (bytes <= 0) return '';
-  const buffer = Buffer.from(text, 'utf8');
+  const buffer = new TextEncoder().encode(text);
   if (buffer.length <= bytes) return text;
   let end = bytes;
   // Walk back while the byte is a UTF-8 continuation byte (10xxxxxx).
   while (end > 0 && (buffer[end]! & 0xc0) === 0x80) end -= 1;
-  return buffer.subarray(0, end).toString('utf8');
+  return new TextDecoder().decode(buffer.subarray(0, end));
 }
 
 /** Apply a fault scenario to trace frames. Pure and deterministic. */
