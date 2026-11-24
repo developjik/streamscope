@@ -344,3 +344,34 @@ or the baseline manifest (symlink and hardlink aliases are also rejected).
 Argument JSON numeric normalization is conservative: fractional, exponent-form and unsafe
 integer values keep the original argument string, so rounding cannot hide a
 payload change. Those strings may still flag whitespace/key-order changes.
+
+### Unified recording and session replay
+
+```sh
+streamscope serve --target http://localhost:3000
+# recording proxy: http://127.0.0.1:8787
+# session list:    http://127.0.0.1:8788/
+```
+
+Point the app/client at the recording proxy. Open the separate panel URL, refresh
+sessions, and select a session to replay its timeline. The Sessions link returns
+to the list so you can switch without restarting either listener. The session's
+`/stream` endpoint replays the saved wire bytes and `/trace.json` returns its plan.
+Only completed files in immediate session directories under `--out` are listed;
+invalid/unavailable traces are marked rather than crashing the session list.
+
+`serve` accepts the existing recording flags, `--speed`, `--port` (proxy), and
+`--panel-port` (list/replay). Both ports bind only to 127.0.0.1. Use port 0 for
+an OS-assigned port. Ctrl-C/SIGTERM closes both servers and releases the session
+root lock. Startup errors include the conflicting address and close any listener
+already started. One serve process may use a root at a time. After a crash,
+remove only `.streamscope-serve.lock`, and only after checking the old process
+has stopped. Existing `record` and `replay` commands remain available unchanged.
+
+The list shows up to the newest 500 directory names. Per-session traces are
+limited to 10MB; symlink directories/files, traversal, and files outside the root
+are rejected. Large/unavailable traces remain on disk for existing CLI tools.
+Refresh is manual: a session appears after the recording response finishes and
+its trace is written. The proxy forwards live requests and records their stream
+contents; header redaction stays on by default, but body contents may still be
+sensitive. Use only with trusted local clients and upstreams.
