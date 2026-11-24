@@ -162,6 +162,13 @@ describe('applyFaults', () => {
     expect(result.frames.map((frame) => frame.event.delta ?? frame.event.type)).toEqual(['1', '2', '2', '0', 'error']);
   });
 
+  it('replaces earlier injected errors at an immediate original boundary', () => {
+    const result = applyFaults(frames(6), parseScenario('error(429,4),error(503,0)'), { meta });
+    expect(result.frames).toHaveLength(1);
+    expect(result.frames[0]?.event.status).toBe(503);
+    expect(result.status).toBe(503);
+  });
+
   it('duplicates a frame right after the original', () => {
     const result = applyFaults(frames(3), parseScenario('dup(1)'), { meta });
     expect(result.frames.map((f) => f.event.delta)).toEqual(['0', '1', '1', '2']);
