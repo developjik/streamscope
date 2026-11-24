@@ -270,9 +270,7 @@ expect.extend({ toMatchTrace });
 vi.stubGlobal('fetch', createTraceFetch(trace, { url: '/api/chat' }));
 // Unmatched calls reject unless you explicitly provide fallback: fetch.
 // Call vi.unstubAllGlobals() in afterEach to restore the real fetch.
-// Runtime matcher registration works with expect.extend; typed callers can use
-// toMatchTrace(actualTrace, trace) directly and inspect pass/message().
-expect(toMatchTrace(actualTrace, trace).pass).toBe(true);
+expect(actualTrace).toMatchTrace(trace); // Typed after importing streamscope/vitest.
 interceptTrace(cy, '/api/chat', trace);
 ```
 
@@ -280,4 +278,4 @@ interceptTrace(cy, '/api/chat', trace);
 
 SSE provider adapters recognize OpenAI Assistants `thread.run.*`, `thread.message.delta`, and tool argument deltas, plus LangGraph SDK `metadata`, `messages`/`messages-tuple`, `end`, and `error` events. Message text, tool chunks, run completion and errors become normalized trace events. These adapters cover these documented stream forms, not every provider mode (for example LangGraph values/updates remain generic). Existing SSE and NDJSON framing remains supported.
 
-Validation: `npm run verify && npm run test:e2e`. Runner tests read a recorded JSONL file, prove passing/failing frame comparisons, and import the built fixture in a real Chromium page. No external provider API is called.
+Validation: `npm run verify && npm run test:e2e && npm run test:browser`. Runner tests read a recorded JSONL file, prove passing/failing frame comparisons, and import the built fixture in a real Chromium page. The Vitest browser-mode example in `e2e/fixtures.browser.test.ts` also reads the real recording and asserts both match and mismatch. No external provider API is called.
