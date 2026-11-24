@@ -1,12 +1,14 @@
 /** Browser-safe replay helpers. Load JSONL with your runner, then pass a Trace. */
 import type { Trace, TraceFrame } from './types.js';
 
+const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)])) : value;
+
 export interface TraceMatchResult { pass: boolean; message: () => string }
 export function toMatchTrace(received: Trace | TraceFrame[], expected: Trace | TraceFrame[]): TraceMatchResult {
   const actual = Array.isArray(received) ? received : received.frames;
   const wanted = Array.isArray(expected) ? expected : expected.frames;
   for (let i = 0; i < Math.max(actual.length, wanted.length); i++) {
-    if (JSON.stringify(actual[i]?.event) !== JSON.stringify(wanted[i]?.event)) {
+    if (JSON.stringify(canonical(actual[i]?.event)) !== JSON.stringify(canonical(wanted[i]?.event))) {
       return { pass: false, message: () => `Trace mismatch at frame ${i}: expected ${JSON.stringify(wanted[i]?.event)}, received ${JSON.stringify(actual[i]?.event)}` };
     }
   }
