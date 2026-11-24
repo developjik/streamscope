@@ -58,6 +58,36 @@ function payloadDiff(before: unknown, after: unknown, path = ''): PayloadChange[
     },
   ];
 }
+function nativeIndex(data: unknown): unknown {
+  const obj = (v: unknown): Record<string, unknown> =>
+    v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+  const root = obj(data),
+    delta = obj(root.delta),
+    step = obj(delta.step_details);
+  const calls = step.tool_calls;
+  if (Array.isArray(calls) && calls.length === 1) {
+    const c = obj(calls[0]);
+    return c.id ?? (c.index === undefined ? undefined : { step: root.id, index: c.index });
+  }
+  const message = obj(Array.isArray(data) ? data[0] : data),
+    chunks = message.tool_call_chunks;
+  if (Array.isArray(chunks) && chunks.length === 1) {
+    const c = obj(chunks[0]);
+    return c.id ?? (c.index === undefined ? undefined : { message: message.id, index: c.index });
+  }
+  return undefined;
+}
+function comparisonEvent(frame: TraceFrame): unknown {
+  const event = frame.event;
+  if (event.type === 'tool-call-delta' && event.complete && typeof event.argsDelta === 'string') {
+    try {
+      return { ...event, argsDelta: JSON.parse(event.argsDelta) };
+    } catch {
+      /* Incomplete/invalid fragments remain byte-sensitive. */
+    }
+  }
+  return event;
+}
 function keyed(frames: TraceFrame[]): Array<{ key: string; frame: TraceFrame; index: number }> {
   const seen = new Map<string, number>();
   return frames.map((frame, index) => {
@@ -69,7 +99,8 @@ function keyed(frames: TraceFrame[]): Array<{ key: string; frame: TraceFrame; in
       native.tool_call_id ??
       native.inputIndex ??
       native.input_index ??
-      native.index;
+      native.index ??
+      nativeIndex(data);
     const base = `${frame.event.type}:${identity === undefined ? `ordinal=${index}` : stable(identity)}`;
     const occurrence = seen.get(base) ?? 0;
     seen.set(base, occurrence + 1);
@@ -103,7 +134,7 @@ export function diffTraces(before: Trace, after: Trace): TraceDiff {
       beforeIndex: x.index,
       afterIndex: y.index,
       latencyDeltaMs: y.frame.t_ms - x.frame.t_ms,
-      payload: payloadDiff(x.frame.event, y.frame.event),
+      payload: payloadDiff(comparisonEvent(x.frame), comparisonEvent(y.frame)),
       reordered: ranks.get(x.key) !== rank,
     };
   });
