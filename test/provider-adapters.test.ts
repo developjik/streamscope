@@ -1,0 +1,37 @@
+import { expect, test } from 'vitest';
+import { createAdapter } from '../src/adapters/index.js';
+const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+test('OpenAI Assistants SSE maps run, message text, tool args and completion across chunks', () => {
+  const wire = frame('thread.run.created', { id: 'r1' }) + frame('thread.message.delta', { id: 'm1', delta: { content: [{ type: 'text', text: { value: 'Hello' } }] } }) + frame('thread.run.step.delta', { delta: { step_details: { tool_calls: [{ id: 'c1', function: { name: 'search', arguments: '{"q":"hi"}' } }] } } }) + frame('thread.run.completed', { id: 'r1' });
+  const adapter = createAdapter({ contentType: 'text/event-stream' });
+  const events = [];
+  for (let i = 0; i < wire.length; i += 7) events.push(...adapter.feed(wire.slice(i, i + 7)));
+  events.push(...adapter.flush());
+  expect(adapter.protocol).toBe('openai-assistants');
+  expect(events.map(f => f.event.type)).toEqual(['run-start', 'text-delta', 'tool-call-delta', 'finish']);
+  expect(events[1]!.event.delta).toBe('Hello');
+  expect(events[2]!.event.argsDelta).toBe('{"q":"hi"}');
+});
+test('OpenAI terminal failures and unknown events remain visible', () => {
+  const adapter = createAdapter({ framing: 'sse' });
+  expect(adapter.feed(frame('thread.run.failed', { id: 'r1', last_error: { message: 'quota' } }))[0]!.event).toMatchObject({ type: 'error', message: 'quota' });
+  expect(adapter.feed(frame('thread.new_event', { id: 'x' }))[0]!.event).toMatchObject({ type: 'lifecycle', name: 'thread.new_event' });
+});
+test('LangGraph SDK message tuples map text and tool chunks, not metadata as text', () => {
+  const adapter = createAdapter({ framing: 'sse' });
+  const events = adapter.feed(frame('metadata', { run_id: 'r2' }) + frame('messages', [{ id: 'm2', content: 'Hi', tool_call_chunks: [{ id: 't2', name: 'tool', args: '{' }] }, { langgraph_node: 'model' }]) + frame('messages-tuple', [{ id: 'm2', content: [{ type: 'text', text: ' there' }] }, {}]) + frame('end', { run_id: 'r2', status: 'success' }));
+  expect(adapter.protocol).toBe('langgraph');
+  expect(events.map(f => f.event.type)).toEqual(['run-start', 'text-delta', 'tool-call-delta', 'text-delta', 'finish']);
+  expect(events[3]!.event.delta).toBe(' there');
+});
+test('LangGraph errors and malformed payloads do not crash existing SSE', () => {
+  const adapter = createAdapter({ framing: 'sse', protocol: 'langgraph' });
+  expect(adapter.feed(frame('error', { message: 'failed' }))[0]!.event).toMatchObject({ type: 'error', message: 'failed' });
+  expect(() => adapter.feed('event: messages\ndata: not json\n\n')).not.toThrow();
+});
+
+test('generic SSE error is not automatically mislabeled as LangGraph', () => {
+  const adapter = createAdapter({ framing: 'sse' });
+  adapter.feed(frame('error', { message: 'generic' }));
+  expect(adapter.protocol).not.toBe('langgraph');
+});
