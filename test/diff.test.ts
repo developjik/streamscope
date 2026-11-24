@@ -112,3 +112,42 @@ describe('tool-call acceptance and structural keys', () => {
     expect(d.matched.every((x) => x.reordered)).toBe(true);
   });
 });
+
+describe('provider identities and completed JSON args', () => {
+  it('aligns OpenAI nested tool indices instead of absolute ordinals', () => {
+    const a = trace([{}, {}]),
+      b = trace([{}]);
+    for (const [i, f] of a.frames.entries()) {
+      f.event.type = 'tool-call-delta';
+      f.event.data = { id: 'step', delta: { step_details: { tool_calls: [{ index: i }] } } };
+    }
+    b.frames[0]!.event = structuredClone(a.frames[1]!.event);
+    const d = diffTraces(a, b);
+    expect(d.removed).toHaveLength(1);
+    expect(d.added).toHaveLength(0);
+    expect(d.matched[0]?.beforeIndex).toBe(1);
+  });
+  it('aligns LangGraph nested tool chunk index within message', () => {
+    const a = trace([{}, {}]),
+      b = trace([{}]);
+    for (const [i, f] of a.frames.entries()) {
+      f.event.type = 'tool-call-delta';
+      f.event.data = [{ id: 'message', tool_call_chunks: [{ index: i }] }];
+    }
+    b.frames[0]!.event = structuredClone(a.frames[1]!.event);
+    expect(diffTraces(a, b).matched[0]?.beforeIndex).toBe(1);
+  });
+  it('treats valid completed JSON args structurally but not incomplete fragments', () => {
+    const a = trace([{ id: 'tool' }]),
+      b = trace([{ id: 'tool' }]);
+    for (const t of [a, b]) {
+      t.frames[0]!.event.type = 'tool-call-delta';
+      t.frames[0]!.event.complete = true;
+    }
+    a.frames[0]!.event.argsDelta = '{"a":1,"b":2}';
+    b.frames[0]!.event.argsDelta = '{"b":2,"a":1}';
+    expect(diffTraces(a, b).noDifferences).toBe(true);
+    b.frames[0]!.event.complete = false;
+    expect(diffTraces(a, b).matched[0]?.payload.length).toBeGreaterThan(0);
+  });
+});
