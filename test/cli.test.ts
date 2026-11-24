@@ -195,3 +195,25 @@ describe('diff CLI and baseline gates', () => {
     expect(c.err()).toContain('invalid JSON');
   });
 });
+
+describe('diff report input safety', () => {
+  it('never overwrites either trace or symlink/hardlink aliases with HTML', async () => {
+    const dir = await tmpDir(),
+      a = path.join(dir, 'a.jsonl'),
+      b = path.join(dir, 'b.jsonl'),
+      sym = path.join(dir, 'alias'),
+      hard = path.join(dir, 'hard');
+    const bytes = await fs.readFile(fixture);
+    await fs.writeFile(a, bytes);
+    await fs.writeFile(b, bytes);
+    await fs.symlink(a, sym);
+    await fs.link(b, hard);
+    for (const output of [a, b, sym, hard]) {
+      const c = capture();
+      expect(await run(['diff', a, b, '--html', output], c.io)).toBe(2);
+      expect(c.err()).toContain('must not overwrite');
+    }
+    expect(await fs.readFile(a)).toEqual(bytes);
+    expect(await fs.readFile(b)).toEqual(bytes);
+  });
+});
