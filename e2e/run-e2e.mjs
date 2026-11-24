@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { chromium } = await import('playwright-core');
 const { replayStream } = await import(path.join(root, 'dist', 'playwright.js'));
+const { diffTraces, renderDiffHtml, parseTrace } = await import(path.join(root, 'dist', 'index.js'));
 const { startReplayServer } = await import(path.join(root, 'dist', 'index.js'));
 
 const DEMO_PORT = 8795;
@@ -115,6 +116,30 @@ try {
   check('panel: injected error is flagged as the break point', breakCard);
   await page.screenshot({ path: path.join(artifacts, 'panel.png'), fullPage: false });
   await panelServer.close();
+
+  // Diff report: gates, both reused viewers and narrow-screen controls.
+  const original = parseTrace(await fs.readFile(path.join(root, 'demo', 'traces', 'chat-ai-sdk.jsonl'), 'utf8'));
+  const changed = structuredClone(original);
+  changed.frames.forEach(frame => { frame.t_ms += 200; });
+  changed.frames.push({seq:100,t_ms:600,raw:'data: {}',event:{type:'tool-call-delta',id:'added-tool',argsDelta:'{}'}});
+  const diff = diffTraces(original, changed);
+  await page.setContent(renderDiffHtml(diff, original, changed, ['added', 'latency>199ms']));
+  const report = page.locator('body');
+  check('diff: change summary and failed gates visible', (await report.innerText()).includes('Gate failed: added, latency>199ms'));
+  await page.setViewportSize({width:390,height:844});
+  check('diff: no outer horizontal overflow', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  for (const title of ['Before trace','After trace']) {
+    const iframe = page.frameLocator(`iframe[title="${title}"]`);
+    await iframe.locator('#scrub').waitFor();
+    await iframe.locator('#next').click();
+    check(`diff: ${title} next control works`, (await iframe.locator('#frame-title').innerText()).startsWith('#1 '));
+    const fits = await iframe.locator('body').evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.querySelector('#scrub').getBoundingClientRect().right <= innerWidth);
+    check(`diff: ${title} controls fit narrow viewport`, fits);
+    await iframe.locator('.counts').evaluate(el => { el.scrollLeft = el.scrollWidth; });
+    check(`diff: ${title} counts can scroll`, await iframe.locator('.counts').evaluate(el => el.scrollWidth <= el.clientWidth || el.scrollLeft > 0));
+  }
+  await page.screenshot({path:path.join(artifacts,'diff-mobile.png'),fullPage:true});
+
 } finally {
   if (browser) await browser.close();
   demo.kill('SIGTERM');
