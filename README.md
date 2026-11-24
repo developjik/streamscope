@@ -376,7 +376,9 @@ its trace is written. The proxy forwards live requests and records their stream
 contents; header redaction stays on by default, but body contents may still be
 sensitive. Use only with trusted local clients and upstreams.
 
-On Linux, the session panel requires `/proc/self/fd` to be mounted and readable.
-It verifies the opened file descriptor stays inside the session root and fails
-closed if that check is unavailable. A container without procfs can still use
-the existing standalone record/replay CLI, but cannot use the serve session panel.
+On Linux, reading a session requires `/proc/self/fd` to be mounted and readable.
+The check runs when opening each trace, not at server startup. Without procfs,
+the recording proxy and panel still start, but recorded sessions show as
+unavailable and session replay requests return HTTP400. The check fails closed
+to keep opened file descriptors inside the session root. Standalone record/replay
+CLI use remains available in containers without procfs.
