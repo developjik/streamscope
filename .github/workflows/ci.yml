@@ -87,7 +87,10 @@ jobs:
           if-no-files-found: ignore
 
   runtime-node20:
-    name: built production package (Node 20.19.0, no test runner)
+    name: built production package (Node ${{ matrix.runtime }}, no test runner)
+    strategy:
+      matrix:
+        runtime: ['20.0.0', '20.19.0']
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -97,7 +100,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - run: echo "RUNTIME_TARBALL=$PWD/$(npm pack --ignore-scripts --silent)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '20.19.0'
+          node-version: ${{ matrix.runtime }}
       - run: node scripts/runtime-smoke.mjs
