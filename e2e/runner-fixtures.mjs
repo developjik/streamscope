@@ -2,6 +2,7 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 const server = createServer(async (req, res) => {
   try {
     if (req.url === '/') { res.setHeader('content-type', 'text/html'); res.end('<!doctype html><title>runner fixture check</title>'); return; }
@@ -11,9 +12,16 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(500);res.end(); }
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
+function launchOptions() {
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM ?? ['/workspace/.tools/chromium/pack/chromium', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(path => existsSync(path));
+  const env = { ...process.env };
+  const libs = ['/workspace/.tools/chromium/pack/libs/lib', '/workspace/.tools/root/usr/lib/x86_64-linux-gnu'].filter(path => existsSync(path));
+  if (libs.length) env.LD_LIBRARY_PATH = [...libs, env.LD_LIBRARY_PATH ?? ''].filter(Boolean).join(':');
+  return { headless: true, ...(executablePath ? { executablePath } : {}), args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'], env };
+}
 let browser;
 try {
-  browser=await chromium.launch({headless:true});const page=await browser.newPage();
+  browser=await chromium.launch(launchOptions());const page=await browser.newPage();
   await page.goto('http://127.0.0.1:'+server.address().port+'/');
   const result=await page.evaluate(async()=>{
     const {createTraceFetch,toMatchTrace}=await import('/vitest.js');
