@@ -1,5 +1,20 @@
 # streamscope
 
+## Browser trace playground
+
+The static playground lives in `apps/playground`. Open the repository's GitHub Pages deployment to try synthetic normal, disconnected and error traces without installing the CLI.
+
+![Trace playground: frame selection and replay](docs/playground.gif)
+
+Local preview: `npm ci`, `npm run playground:dev`, then open the Vite URL with `/streamscope/`. Production build: `npm run playground:build`; files are in `apps/playground/dist`. Requires Node22.18+ for development. The published CLI still supports Node20.
+
+Paste JSONL or drop a file (512KiB / 2000frames), step or play at 0.5/1/4/16x, and apply the same fault DSL used by the CLI. Parsing is strict here so malformed lines show their line number; the CLI's tolerant partial-trace parser is unchanged. Long playback gaps cap at30seconds. Supported in current Chromium, Firefox and Safari with CompressionStream/DecompressionStream.
+
+No trace uploads, analytics, remote fetches, gist writes or browser storage. Replay uses an opaque sandbox with network access disabled. Share creates a compressed URL fragment only after a private-data check. It includes the full original trace and fault scenario, not a scrubbed summary. Anyone with that link can read the trace; browser history, clipboard, extensions or screenshots can retain it. Sanitize prompts, tokens, headers and user data before sharing. Links cap at16000characters; use a smaller sanitized trace when too large. Clear removes this page's input/fragment, not copies elsewhere.
+
+CI verifies the browser app independently of the CLI. Pages deploys the exact successful `main` CI commit through `deploy-pages.yml`; repository Pages must use GitHub Actions. No npm release is part of this workflow.
+
+
 [한국어](README.ko.md) · English
 
 **Record, replay and deliberately break AI streaming UIs — down to the frame.**
