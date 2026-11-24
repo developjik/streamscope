@@ -193,3 +193,10 @@ it('never equates parsed JSON strings with unparsed argument source',()=>{
  a.frames[0]!.event.argsDelta='{"n":0.1}';b.frames[0]!.event.argsDelta=JSON.stringify(a.frames[0]!.event.argsDelta);
  expect(diffViolations(diffTraces(a,b),parseDiffGates('payload'))).toEqual(['payload']);
 });
+
+
+it('reports completed argument changes at the real string field, without internal wrapper keys',()=>{
+ const a=trace([{id:'tool'}]),b=trace([{id:'tool'}]);for(const t of [a,b])Object.assign(t.frames[0]!.event,{type:'tool-call-delta',complete:true});
+ a.frames[0]!.event.argsDelta='{"a":1}';b.frames[0]!.event.argsDelta='{"a":2}';
+ expect(diffTraces(a,b).matched[0]?.payload).toEqual([{path:'/argsDelta',before:'{"a":1}',after:'{"a":2}'}]);
+});
