@@ -26,6 +26,7 @@ export interface ProxyOptions {
   /** Never record URLs matching this pattern (assets, HMR, ...). */
   ignore?: RegExp;
   /** Called once per recorded session. */
+  onRecording?: (file: string) => void;
   onSession?: (trace: Trace, file: string) => void;
   /** Log one line per session to stderr. */
   log?: boolean;
@@ -189,6 +190,7 @@ export async function handleProxyRequest(
         if (options.outDir) recorderOptions.dir = options.outDir;
         if (options.now) recorderOptions.now = options.now;
         recorder = new Recorder(recorderOptions);
+        options.onRecording?.(recorder.file);
         void recorder.begin();
       }
 
@@ -236,6 +238,7 @@ export async function handleProxyRequest(
     }
   });
 
+  res.on('close', () => upstream.destroy());
   req.on('close', () => {
     if (!res.writableEnded) upstream.destroy();
   });
@@ -276,7 +279,7 @@ export async function startRecordingProxy(options: ProxyOptions): Promise<ProxyH
     });
   });
   server.on('clientError', (_error, socket) => socket.destroy());
-  await new Promise<void>((resolve) => server.listen(options.port ?? 0, options.host ?? '127.0.0.1', resolve));
+  await new Promise<void>((resolve, reject) => { const fail = (error: Error) => reject(new Error(`streamscope: cannot listen on ${options.host ?? '127.0.0.1'}:${options.port ?? 0}: ${error.message}`)); server.once('error', fail); server.listen(options.port ?? 0, options.host ?? '127.0.0.1', () => { server.off('error', fail); resolve(); }); });
   const address = server.address() as AddressInfo;
   return {
     server,

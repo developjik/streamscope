@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyFaults, FaultSyntaxError, defaultEncoder, formatScenario, parseScenario } from '../src/faults.js';
 import { startRecordingProxy } from '../src/proxy.js';
+import { startServe } from '../src/serve.js';
 import { startReplayServer } from '../src/replay.js';
 import { formatSummary, parseTrace, readTrace, resolveTracePath, summarize, traceToJsonl } from '../src/trace.js';
 import { renderPanelHtml } from '../src/ui/panel.js';
@@ -45,6 +46,7 @@ const BOOLEAN_FLAGS = new Set([
   'no-redact',
 ]);
 const VALUE_FLAGS = new Set([
+  'panel-port',
   'target',
   'port',
   'out',
@@ -59,7 +61,7 @@ const VALUE_FLAGS = new Set([
   'baseline',
   'fail-on',
 ]);
-const COMMANDS = ['record', 'replay', 'inject', 'inspect', 'diff', 'help', 'version'] as const;
+const COMMANDS = ['serve', 'record', 'replay', 'inject', 'inspect', 'diff', 'help', 'version'] as const;
 type Command = (typeof COMMANDS)[number];
 
 interface Parsed {
@@ -185,6 +187,7 @@ Usage
   streamscope <command> [options]
 
 Commands
+  serve    Record + session list + replay in one process
   record   Reverse-proxy an app and record every SSE / NDJSON stream it serves
   replay   Serve a recorded stream (optionally fault-injected) + timeline panel
   inject   Write a new trace file with faults baked in (for regression fixtures)
@@ -220,6 +223,12 @@ Docs: https://github.com/developjik/streamscope`;
 
 function commandHelp(command: string): string {
   switch (command) {
+    case 'serve':
+      return `streamscope serve --target <url> [--port 8787] [--panel-port 8788] [--out .streams]
+Both listeners bind only to 127.0.0.1. Use --port 0 --panel-port 0 for random ports.
+Supports record flags (--adapter, --include, --ignore, --no-redact, --quiet) and --speed.
+Open the panel URL, refresh sessions, select a recorded session. Ctrl-C stops both.
+A root lock prevents duplicate serve processes; remove a stale lock only after checking the old process stopped.`;
     case 'record':
       return `streamscope record — reverse proxy + recorder
 
@@ -308,6 +317,8 @@ export async function run(argv: string[], io: CliIO = DEFAULT_IO): Promise<numbe
         return await runInspect(parsed, io);
       case 'inject':
         return await runInject(parsed, io);
+      case 'serve':
+        return await runServe(parsed, io);
       case 'record':
         return await runRecord(parsed, io);
       case 'replay':
@@ -589,4 +600,21 @@ async function loadDiffTrace(input: string | undefined, io: CliIO, expected?: st
     seq.add(frame.seq as number);
   }
   return parseTrace(text, file);
+}
+
+
+async function runServe(parsed: Parsed, io: CliIO): Promise<number> {
+  const target=flag(parsed,'target');if(!target)throw new UsageError('--target is required');
+  const url=new URL(target);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw new UsageError('target must be HTTP(S) without credentials');
+  const portValue=(name:string,fallback:number)=>{const n=Number(flag(parsed,name)??fallback);if(!Number.isInteger(n)||n<0||n>65535)throw new UsageError(`--${name} must be an integer from 0 to 65535`);return n;};
+  const speed=Number(flag(parsed,'speed')??1);if(!Number.isFinite(speed)||speed<0)throw new UsageError('--speed must be a nonnegative finite number');
+  const adapter=(flag(parsed,'adapter')??'auto');if(!['auto','sse','ndjson','json'].includes(adapter))throw new UsageError('invalid adapter');
+  let stopping=false;let finish: (()=>void)|undefined;const stop=()=>{stopping=true;finish?.();};process.on('SIGINT',stop);process.on('SIGTERM',stop);
+  let handle:Awaited<ReturnType<typeof startServe>>|undefined;
+  try{
+  handle=await startServe({target,port:portValue('port',8787),panelPort:portValue('panel-port',8788),outDir:path.resolve(io.cwd,flag(parsed,'out')??'.streams'),speed,adapter:{framing:adapter as 'auto'|'sse'|'ndjson'|'json'},include:flag(parsed,'include')?new RegExp(flag(parsed,'include')!):undefined,ignore:flag(parsed,'ignore')?new RegExp(flag(parsed,'ignore')!):undefined,redact:!bool(parsed,'no-redact'),log:!bool(parsed,'quiet')});
+    io.stdout(`streamscope proxy: ${handle.proxyUrl} -> ${target}\npanel: ${handle.url}\n`);
+    if(bool(parsed,'no-redact'))io.stderr('Warning: header redaction disabled; recorded headers may contain credentials.\n');
+    if(!stopping)await new Promise<void>(resolve=>{finish=resolve;});
+  }finally{process.off('SIGINT',stop);process.off('SIGTERM',stop);await handle?.close();}return 0;
 }

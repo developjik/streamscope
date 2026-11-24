@@ -45,3 +45,6 @@ export { NdjsonParser } from './adapters/ndjson.js';
 
 export { diffTraces, diffViolations, formatTraceDiff, parseDiffGates, renderDiffHtml } from './diff.js';
 export type { TraceDiff, FrameChange, PayloadChange, DiffGate } from './diff.js';
+
+export { startServe } from './serve.js';
+export type { ServeOptions, ServeHandle } from './serve.js';
