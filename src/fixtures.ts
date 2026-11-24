@@ -15,6 +15,8 @@ export function toMatchTrace(received: Trace | TraceFrame[], expected: Trace | T
   return { pass: true, message: () => 'Expected traces to differ, but every normalized frame matched' };
 }
 
+const wire = (trace: Trace, frame: TraceFrame): string => trace.meta.framing === 'ndjson' && !frame.raw.endsWith('\n') ? frame.raw + '\n' : frame.raw;
+
 export interface TraceFetchOptions {
   /** Exact URL, RegExp, or predicate. Unmatched calls use fallback or reject. */
   url?: string | RegExp | ((url: string) => boolean);
@@ -51,12 +53,13 @@ export function createTraceFetch(trace: Trace, options: TraceFetchOptions = {}):
         if (!frame) { cleanup(); controller.close(); return; }
         const wait = speed === 0 ? 0 : Math.max(0, frame.t_ms - previous) / speed;
         previous = frame.t_ms;
-        if (wait === 0) { controller.enqueue(new TextEncoder().encode(frame.raw)); return; }
-        return new Promise<void>((resolve) => { resolveWait = resolve; timer = setTimeout(() => { timer = undefined; resolveWait = undefined; if (!signal?.aborted) controller.enqueue(new TextEncoder().encode(frame.raw)); resolve(); }, wait); });
+        if (wait === 0) { controller.enqueue(new TextEncoder().encode(wire(trace, frame))); return; }
+        return new Promise<void>((resolve) => { resolveWait = resolve; timer = setTimeout(() => { timer = undefined; resolveWait = undefined; if (!signal?.aborted) controller.enqueue(new TextEncoder().encode(wire(trace, frame))); resolve(); }, wait); });
       },
       cancel() { cleanup(); },
     });
-    return new Response(body, { status: trace.meta.response?.status ?? 200, headers: { ...trace.meta.response?.headers, 'content-type': trace.meta.response?.contentType ?? 'text/event-stream; charset=utf-8' } });
+    const status = trace.meta.response?.status ?? 200;
+    return new Response([204, 205, 304].includes(status) ? null : body, { status, headers: { ...trace.meta.response?.headers, 'content-type': trace.meta.response?.contentType ?? 'text/event-stream; charset=utf-8' } });
   };
 }
 
@@ -65,5 +68,5 @@ export interface CypressLike {
 }
 /** Cypress buffers replies. This helper does not claim frame timing or disconnect fidelity. */
 export function interceptTrace(cy: CypressLike, url: string | RegExp, trace: Trace): unknown {
-  return cy.intercept(url, (request) => request.reply({ statusCode: trace.meta.response?.status ?? 200, headers: { ...trace.meta.response?.headers, 'content-type': trace.meta.response?.contentType ?? 'text/event-stream; charset=utf-8' }, body: trace.frames.map((frame) => frame.raw).join('') }));
+  return cy.intercept(url, (request) => request.reply({ statusCode: trace.meta.response?.status ?? 200, headers: { ...trace.meta.response?.headers, 'content-type': trace.meta.response?.contentType ?? 'text/event-stream; charset=utf-8' }, body: trace.frames.map((frame) => wire(trace, frame)).join('') }));
 }
