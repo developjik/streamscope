@@ -26,6 +26,7 @@ export interface ProxyOptions {
   /** Never record URLs matching this pattern (assets, HMR, ...). */
   ignore?: RegExp;
   /** Called once per recorded session. */
+  onRecording?: (file: string) => void;
   onSession?: (trace: Trace, file: string) => void;
   /** Log one line per session to stderr. */
   log?: boolean;
@@ -189,6 +190,7 @@ export async function handleProxyRequest(
         if (options.outDir) recorderOptions.dir = options.outDir;
         if (options.now) recorderOptions.now = options.now;
         recorder = new Recorder(recorderOptions);
+        options.onRecording?.(recorder.file);
         void recorder.begin();
       }
 
@@ -236,6 +238,7 @@ export async function handleProxyRequest(
     }
   });
 
+  res.on('close', () => upstream.destroy());
   req.on('close', () => {
     if (!res.writableEnded) upstream.destroy();
   });
