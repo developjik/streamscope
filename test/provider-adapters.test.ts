@@ -45,3 +45,25 @@ test('provider fault encoding round-trips a mutated tool argument', async () => 
     expect(event.argsDelta).toBe('{');
   }
 });
+
+
+test('multiple provider deltas replay once and permit dropping or truncating a single delta', async () => {
+  const { prepareReplay } = await import('../src/replay.js');
+  for (const protocol of ['openai-assistants', 'langgraph'] as const) {
+    const wire = protocol === 'langgraph' ? frame('messages', [{id:'m',content:'Hi',tool_call_chunks:[{id:'t',index:2,name:'tool',args:'{"long":true}'}]},{node:'model'}]) : frame('thread.run.step.delta',{id:'step',delta:{step_details:{type:'tool_calls',tool_calls:[{id:'a',index:0,function:{arguments:'{"x":true}'}},{id:'b',index:1,function:{arguments:'{"y":true}'}}]}}});
+    const adapter = createAdapter({framing:'sse',protocol}); const frames=adapter.feed(wire).map((f,seq)=>({...f,seq,t_ms:0}));
+    const trace={meta:{v:1,kind:'meta',session:'multi',adapter:protocol,framing:'sse',protocol,startedAt:'2026-01-01'},frames} as import('../src/types.js').Trace;
+    const replay=(raw:string)=>createAdapter({framing:'sse',protocol}).feed(raw);
+    expect(replay(frames.map(f=>f.raw).join('')).map(f=>f.event.type)).toEqual(frames.map(f=>f.event.type));
+    const dropped=prepareReplay(trace,{inject:'drop(1)'}); expect(replay(dropped.frames.map(f=>f.raw).join(''))).toHaveLength(1);
+    const cut=prepareReplay(trace,{inject:'truncate_tool_args(1)'});const tool=replay(cut.frames.map(f=>f.raw).join('')).filter(f=>f.event.type==='tool-call-delta');expect(tool.every(f=>f.event.argsDelta==='{')).toBe(true);
+    if(protocol==='openai-assistants') expect(cut.frames[1]!.raw).toContain('"index":1');
+    else expect(cut.frames[1]!.raw).toContain('"node":"model"');
+  }
+});
+test('non-text message deltas remain recorded and replayable',()=>{
+  const adapter=createAdapter({framing:'sse'});
+  const wire=frame('thread.message.delta',{id:'m',delta:{content:[{index:0,type:'image_file',image_file:{file_id:'img'}},{index:1,type:'text',text:{annotations:[{index:0,type:'file_citation'}]}}]}});
+  const frames=adapter.feed(wire);expect(frames).toHaveLength(2);expect(frames.every(f=>f.event.type==='lifecycle')).toBe(true);
+  const again=createAdapter({framing:'sse'}).feed(frames.map(f=>f.raw).join(''));expect(again).toHaveLength(2);expect(again[0]!.raw).toContain('img');expect(again[1]!.raw).toContain('file_citation');
+});
