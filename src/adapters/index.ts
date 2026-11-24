@@ -6,6 +6,7 @@
  * detected per payload by `protocols.ts` and exposed as `protocol`.
  */
 import type { AdapterFrame, Framing, NormalizedEvent, Protocol } from '../types.js';
+import { providerEvents } from './providers.js';
 import { NdjsonParser } from './ndjson.js';
 import { SseParser, formatSseMessage } from './sse.js';
 import { adapterLabel, classifyPayload, encodeEvent } from './protocols.js';
@@ -159,7 +160,7 @@ class Adapter implements StreamAdapter {
     for (const message of messages) {
       const payload = message.data;
       if (payload === '' && message.event === undefined) continue;
-      const classified = classifyPayload(payload, this.hint);
+      const classified = providerEvents(message.event, payload, this.detectedProtocol ?? (this.hint === 'auto' ? undefined : this.hint)) ?? classifyPayload(payload, this.hint);
       const events = classified.events;
       this.observeProtocol(classified.protocol);
       if (events.length === 0) continue;
