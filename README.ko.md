@@ -282,6 +282,6 @@ OpenAI Assistants의 thread.run.*, thread.message.delta, 도구 인자 델타와
 
 ## 개발 기준선 (DEV-128)
 
-개발과 CI는 Node.js 22.18.0(`.nvmrc`) 이상을 사용합니다. Vitest 5.1.1의 공식 지원 범위에는 Node 20.19가 없습니다. 실행이 된다는 이유로 공식 지원이라고 부르지 않습니다. 패키지 사용자의 기존 engines는 유지합니다. Node 20 지원 패키지는 테스트 러너 없이 빌드한 tarball의 운영 의존성만 설치하고 CLI/import를 별도로 검사합니다. 개발 TypeScript 기준은 7.0.2입니다.
+개발과 CI는 Node.js 22.18.0(`.nvmrc`) 또는 이후22.x을 사용합니다. Vitest 5.1.1의 공식 지원 범위에는 Node 20.19가 없습니다. 실행이 된다는 이유로 공식 지원이라고 부르지 않습니다. 패키지 사용자의 기존 engines는 유지합니다. Node 20 지원 패키지는 테스트 러너 없이 빌드한 tarball의 운영 의존성만 설치하고 CLI/import를 별도로 검사합니다. 개발 TypeScript 기준은 7.0.2입니다.
 
-개발 최소 버전 예외: tsup9의 공식 엔진 조건 때문에 Node22.18 이상이 필요합니다. 사용자 런타임 engines는 변경하지 않습니다.
+개발 최소 버전 예외: tsup9의 공식 엔진 조건 때문에 Node22.x의22.18.0 이후이 필요합니다. 사용자 런타임 engines는 변경하지 않습니다.
