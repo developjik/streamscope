@@ -124,7 +124,7 @@ export function stateAt(frames: Array<{ event: NormalizedEvent }>, index: number
 export function renderPanelHtml(trace: Trace, options: PanelOptions = {}): string {
   const frames = (options.frames ?? trace.frames).map((frame, index) => ({
     seq: index,
-    t_ms: frame.t_ms,
+    t_ms: frame.t_ms + (options.frames ? options.frames.slice(0, index + 1).reduce((sum, f) => sum + (f.delay_ms ?? 0), 0) : 0),
     raw: frame.raw,
     event: frame.event,
   }));
@@ -307,7 +307,7 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var
     }
     let breakIndex = -1;
     for (let n = 0; n < frames.length; n++) if ((frames[n].event || {}).type === 'error') { breakIndex = n; break; }
-    if (breakIndex === -1 && !finishSeen && frames.length) breakIndex = frames.length - 1;
+    if (breakIndex === -1 && !frames.some(function(f) { return f.event && f.event.type === 'finish'; }) && frames.length) breakIndex = frames.length - 1;
     return { text: text.join(''), calls: calls, approvals: approvals, errors: errors, finishSeen: finishSeen, breakIndex: breakIndex };
   }
 
@@ -344,7 +344,7 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var
     }
     const counts = {};
     frames.forEach(function (f) { const t = (f.event || {}).type || '?'; counts[t] = (counts[t] || 0) + 1; });
-    $('counts').innerHTML = '<span>' + Object.keys(counts).sort().map(function (k) { return k + ' <b>' + counts[k] + '</b>'; }).join('  ·  ') + '</span>';
+    $('counts').innerHTML = '<span>' + Object.keys(counts).sort().map(function (k) { return esc(k) + ' <b>' + counts[k] + '</b>'; }).join('  ·  ') + '</span>';
   }
 
   function setIndex(i) {
@@ -354,22 +354,25 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var
     renderInspector();
   }
 
+  let playing = false;
   function stop() {
-    if (timer) { clearInterval(timer); timer = null; }
+    playing = false;
+    if (timer !== null) { clearTimeout(timer); timer = null; }
     $('play').textContent = '▶ Play';
   }
-
-  function play() {
-    if (timer) { stop(); return; }
-    $('play').textContent = '❚❚ Pause';
+  function tick() {
+    if (!playing) return;
+    if (index >= frames.length - 1) { stop(); return; }
     const speed = Number($('speed').value) || 1;
-    timer = setInterval(function () {
-      if (index >= frames.length - 1) { stop(); return; }
-      const next = index + 1;
-      setIndex(next);
-      const gap = (frames[next].t_ms - frames[index].t_ms) / speed;
-      if (gap > 250) { stop(); setTimeout(function () { if (!timer) play(); }, Math.min(gap, 1500)); }
-    }, 120);
+    const gap = Math.max(16, Math.min(30000, (frames[index + 1].t_ms - frames[index].t_ms) / speed));
+    timer = setTimeout(function () { if (!playing) return; setIndex(index + 1); tick(); }, gap);
+  }
+  function play() {
+    if (playing) { stop(); return; }
+    if (index >= frames.length - 1) setIndex(0);
+    playing = true;
+    $('play').textContent = '❚❚ Pause';
+    tick();
   }
 
   $('scrub').max = String(Math.max(0, frames.length - 1));
@@ -384,7 +387,7 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var
   document.addEventListener('keydown', function (e) {
     if (e.key === 'ArrowRight') { stop(); setIndex(index + 1); }
     else if (e.key === 'ArrowLeft') { stop(); setIndex(index - 1); }
-    else if (e.key === ' ') { e.preventDefault(); play(); }
+    else if (e.key === ' ' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(e.target.tagName)) { e.preventDefault(); play(); }
   });
 
   setIndex(0);
