@@ -16,6 +16,7 @@ test('serve records, lists, switches and replays two sessions without restarting
  const f=await fixture();const h=await startServe({target:f.target,outDir:f.root,port:0,panelPort:0,speed:0});
  try{
   expect(await (await fetch(h.url)).text()).toContain('No sessions yet');
+  expect((await fetch(new URL('/',h.url))).status).toBe(404);
   await (await fetch(h.proxyUrl+'/first')).text();const first=(await sessions(f.root))[0]!;
   await new Promise(r=>setTimeout(r,20));await (await fetch(h.proxyUrl+'/second')).text();
   for(let i=0;i<100&&(await fs.readdir(f.root)).length<3;i++)await new Promise(r=>setTimeout(r,10));
@@ -48,4 +49,25 @@ test('built serve CLI exits cleanly on SIGTERM and releases listeners and lock',
   expect(output).toContain('panel:');const urls=output.match(/http:\/\/127\.0\.0\.1:\d+/g)!;await(await fetch(urls[0]!+'/cli')).text();
   child.kill('SIGTERM');expect((await once(child,'exit'))[0]).toBe(0);await expect(fetch(urls.at(-1)!)).rejects.toThrow();expect((await fs.readdir(f.root)).includes('.streamscope-serve.lock')).toBe(false);
  }finally{if(child.exitCode===null){child.kill('SIGKILL');await once(child,'exit');}await f.done();}
+});
+
+
+test('active POST recording is unavailable and stopping cancels its upstream connection',async()=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'serve-post-'));let ended:()=>void=()=>{};const closed=new Promise<void>(r=>ended=r);
+ const upstream=http.createServer((req,res)=>{req.resume();res.writeHead(200,{'content-type':'text/event-stream'});res.write('data: waiting\n\n');res.on('close',ended);});upstream.listen(0,'127.0.0.1');await once(upstream,'listening');const addr=upstream.address();if(!addr||typeof addr==='string')throw Error('port');
+ const h=await startServe({target:`http://127.0.0.1:${addr.port}`,outDir:root,port:0,panelPort:0});
+ try{const response=await fetch(h.proxyUrl+'/hang',{method:'POST',body:'hello'});const id=(await sessions(root))[0]!;
+ expect((await fetch(h.url+'sessions/'+encodeURIComponent(id))).status).toBe(400);expect(await(await fetch(h.url)).text()).toContain('still recording');
+ await h.close();await Promise.race([closed,new Promise((_,reject)=>setTimeout(()=>reject(Error('upstream leaked')),1000))]);await response.body?.cancel().catch(()=>{});
+ }finally{await h.close();upstream.closeAllConnections();await new Promise<void>(r=>upstream.close(()=>r()));await fs.rm(root,{recursive:true,force:true});}
+});
+test('recording marker prevents partial legacy session replay',async()=>{const f=await fixture();const h=await startServe({target:f.target,outDir:f.root,port:0,panelPort:0});try{await fs.mkdir(path.join(f.root,'partial'));await fs.writeFile(path.join(f.root,'partial','.recording'),'active');await fs.writeFile(path.join(f.root,'partial','events.jsonl'),'{}');expect((await fetch(h.url+'sessions/partial/stream')).status).toBe(400);}finally{await h.close();await f.done();}});
+
+
+test('SIGTERM during startup releases an acquired root lock',async()=>{
+ const f=await fixture();const logFile=path.join(f.root,'started');
+ const code=`import {run} from ${JSON.stringify(new URL('../bin/cli.ts',import.meta.url).pathname)};`;
+ void code;void logFile;
+ const child=spawn(process.execPath,['dist/cli.js','serve','--target',f.target,'--port','0','--panel-port','0','--out',f.root,'--quiet'],{stdio:['ignore','pipe','pipe']});
+ try{for(let i=0;i<1000;i++){if(await fs.stat(path.join(f.root,'.streamscope-serve.lock')).then(()=>true,()=>false))break;if(child.exitCode!==null)throw Error('early exit');await new Promise(r=>setTimeout(r,1));}child.kill('SIGTERM');expect((await once(child,'exit'))[0]).toBe(0);expect(await fs.stat(path.join(f.root,'.streamscope-serve.lock')).then(()=>true,()=>false)).toBe(false);}finally{if(child.exitCode===null){child.kill('SIGKILL');await once(child,'exit');}await f.done();}
 });
