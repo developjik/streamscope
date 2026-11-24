@@ -1,0 +1,52 @@
+import type { NormalizedEvent, Protocol } from '../types.js';
+
+type Obj = Record<string, unknown>;
+const object = (value: unknown): Obj => value !== null && typeof value === 'object' ? value as Obj : {};
+const str = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined;
+/** Recognize provider SSE event names, not just generic payload shapes. */
+export function providerEvents(name: string | undefined, payload: string, hint?: Protocol): { protocol: Protocol; events: NormalizedEvent[] } | undefined {
+  if (name === 'error' && hint !== 'langgraph') return;
+  if (!name || (!name.startsWith('thread.') && !['metadata', 'messages', 'messages-tuple', 'end', 'error'].includes(name))) return;
+  let value: unknown;
+  try { value = JSON.parse(payload); } catch { return; }
+  const data = object(value);
+  if (name.startsWith('thread.')) {
+    const protocol: Protocol = 'openai-assistants';
+    const id = str(data.id);
+    if (name === 'thread.run.created') return { protocol, events: [{ type: 'run-start', id, data: value }] };
+    if (name === 'thread.run.completed') return { protocol, events: [{ type: 'finish', id, reason: 'stop', data: value }] };
+    if (['thread.run.failed', 'thread.run.cancelled', 'thread.run.expired'].includes(name)) return { protocol, events: [{ type: 'error', id, message: str(object(data.last_error).message) ?? name, data: value }] };
+    if (name === 'thread.message.delta') {
+      const content = object(data.delta).content;
+      const events: NormalizedEvent[] = [];
+      if (Array.isArray(content)) for (const item of content) {
+        const text = str(object(object(item).text).value);
+        if (text !== undefined) events.push({ type: 'text-delta', id, delta: text, data: value });
+      }
+      return { protocol, events };
+    }
+    if (name === 'thread.run.step.delta') {
+      const calls = object(object(data.delta).step_details).tool_calls;
+      const events: NormalizedEvent[] = [];
+      if (Array.isArray(calls)) for (const item of calls) {
+        const call = object(item); const fn = object(call.function);
+        events.push({ type: 'tool-call-delta', id: str(call.id), name: str(fn.name), argsDelta: str(fn.arguments), data: value });
+      }
+      return { protocol, events };
+    }
+    return { protocol, events: [{ type: 'lifecycle', id, name, data: value }] };
+  }
+  const protocol: Protocol = 'langgraph';
+  if (name === 'metadata') return { protocol, events: [{ type: 'run-start', id: str(data.run_id), data: value }] };
+  if (name === 'end') return { protocol, events: [{ type: 'finish', id: str(data.run_id), reason: str(data.status) ?? 'stop', data: value }] };
+  if (name === 'error') return { protocol, events: [{ type: 'error', message: str(data.message) ?? str(data.error) ?? 'LangGraph stream error', data: value }] };
+  if (name === 'messages' || name === 'messages-tuple') {
+    const message = object(Array.isArray(value) ? value[0] : value);
+    const content = message.content;
+    const events: NormalizedEvent[] = [];
+    if (typeof content === 'string') events.push({ type: 'text-delta', id: str(message.id), delta: content, data: value });
+    else if (Array.isArray(content)) for (const block of content) { const text = str(object(block).text); if (text !== undefined) events.push({ type: 'text-delta', id: str(message.id), delta: text, data: value }); }
+    if (Array.isArray(message.tool_call_chunks)) for (const item of message.tool_call_chunks) { const call = object(item); events.push({ type: 'tool-call-delta', id: str(call.id), name: str(call.name), argsDelta: str(call.args), data: value }); }
+    return { protocol, events };
+  }
+}
