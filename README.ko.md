@@ -222,7 +222,7 @@ test('the UI does not lose the tool card when a chunk is dropped', async ({ page
 | HTTP/1.1 스트리밍 응답 (SSE, NDJSON, JSON, text) | H2/H3 멀티플렉스 스트림 |
 | AI SDK UI message stream, legacy data stream, AG-UI, 일반 JSON 델타 | protobuf/gRPC 또는 바이너리 프레임 |
 | Node 20/22, HTTP 서버 뒤의 모든 프레임워크 | Node 서버가 없는 브라우저 전용 앱(스트림을 서빙하는 오리진에 `--target`을 지정) |
-| Playwright (`page.route`가 있는 모든 버전) | Cypress/Vitest 브라우저 모드 픽스처 (아직 없음) |
+| Playwright (`page.route`가 있는 모든 버전) | Cypress 응답 픽스처 / Vitest fetch 픽스처 |
 
 ## 한계 (의도적으로, 문서화된)
 
@@ -253,10 +253,29 @@ node scripts/record-demo.mjs        # 실제 프록시로 demo/traces/*.jsonl �
 
 - `streamscope serve` — 한 프로세스에서 녹화 + 재생 (세션 목록 패널).
 - 두 트레이스를 프레임 단위로 비교 (`streamscope diff a.jsonl b.jsonl`).
-- 같은 재생 서버 위의 Cypress / Vitest 브라우저 모드 픽스처.
-- 추가 어댑터: OpenAI Assistants 스트림 이벤트, LangGraph SDK 이벤트.
 - 커밋되는 트레이스용 사용자 정의 헤더/본문 리댁션 규칙 (내장 자격 증명 마스크는 0.1.1부터 제공).
 
 ## 라이선스
 
 MIT © jungingwon ([developjik](https://github.com/developjik))
+
+## 테스트 러너 픽스처와 제공자 이벤트 (DEV-123)
+
+패키지명은 `streamscope`를 유지합니다. 아래 export는 소스 빌드에서 제공하며 이번 PR은 npm을 배포하지 않습니다.
+
+```ts
+import { createTraceFetch, toMatchTrace } from 'streamscope/vitest';
+import { interceptTrace } from 'streamscope/cypress';
+expect.extend({ toMatchTrace });
+vi.stubGlobal('fetch', createTraceFetch(trace, { url: '/api/chat' }));
+expect(toMatchTrace(actualTrace, trace).pass).toBe(true);
+interceptTrace(cy, '/api/chat', trace);
+```
+
+Node에서는 readTrace로, 브라우저에서는 JSONL을 읽어 Trace를 전달하세요. 매칭되지 않은 fetch는 명시적으로 fallback을 주지 않으면 실패합니다. afterEach에서 vi.unstubAllGlobals로 원래 fetch를 복구하세요. expect.extend는 런타임 등록이며 타입 선언이 필요한 호출부는 toMatchTrace 함수를 직접 사용할 수 있습니다.
+
+createTraceFetch는 실제 Response/ReadableStream에 녹화된 프레임을 보내며 speed:1로 시간 간격, AbortSignal로 중단을 지원합니다. toMatchTrace는 정규화 이벤트를 순서대로 비교해 첫 불일치 프레임의 0부터 시작하는 번호를 알려줍니다. 시간과 와이어 포맷은 비교하지 않습니다. Cypress 응답은 버퍼링되므로 프레임별 시간·네트워크 단절 재현은 Playwright 재생 서버를 사용하세요.
+
+OpenAI Assistants의 thread.run.*, thread.message.delta, 도구 인자 델타와 LangGraph SDK의 metadata, messages/messages-tuple, end, error SSE 이벤트를 정규화합니다. LangGraph의 values/updates 등 다른 모드는 기존 generic 처리입니다. 기존 SSE/NDJSON은 유지합니다. 외부 API를 호출하지 않고 녹화 JSONL과 Chromium에서 통과·실패를 재현합니다.
+
+검증: npm run verify && npm run test:e2e
