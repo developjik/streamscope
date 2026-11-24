@@ -61,7 +61,7 @@ test('active POST recording is unavailable and stopping cancels its upstream con
  await h.close();await Promise.race([closed,new Promise((_,reject)=>setTimeout(()=>reject(Error('upstream leaked')),1000))]);await response.body?.cancel().catch(()=>{});
  }finally{await h.close();upstream.closeAllConnections();await new Promise<void>(r=>upstream.close(()=>r()));await fs.rm(root,{recursive:true,force:true});}
 });
-test('recording marker prevents partial legacy session replay',async()=>{const f=await fixture();const h=await startServe({target:f.target,outDir:f.root,port:0,panelPort:0});try{await fs.mkdir(path.join(f.root,'partial'));await fs.writeFile(path.join(f.root,'partial','.recording'),'active');await fs.writeFile(path.join(f.root,'partial','events.jsonl'),'{}');expect((await fetch(h.url+'sessions/partial/stream')).status).toBe(400);}finally{await h.close();await f.done();}});
+test('recording marker prevents partial legacy session replay',async()=>{const f=await fixture();const h=await startServe({target:f.target,outDir:f.root,port:0,panelPort:0});try{await fs.mkdir(path.join(f.root,'partial'));await fs.writeFile(path.join(f.root,'partial','.recording'),'active');await fs.writeFile(path.join(f.root,'partial','events.jsonl'),JSON.stringify({v:1,kind:'meta',session:'partial',adapter:'sse',framing:'sse',protocol:'generic',startedAt:new Date(0).toISOString()})+'\n');expect((await fetch(h.url+'sessions/partial/stream')).status).toBe(400);await fs.unlink(path.join(f.root,'partial','.recording'));expect((await fetch(h.url+'sessions/partial/stream')).status).toBe(200);}finally{await h.close();await f.done();}});
 
 
 test('SIGTERM during startup releases an acquired root lock',async()=>{
