@@ -81,7 +81,17 @@ function comparisonEvent(frame: TraceFrame): unknown {
   const event = frame.event;
   if (event.type === 'tool-call-delta' && event.complete && typeof event.argsDelta === 'string') {
     try {
-      return { ...event, argsDelta: JSON.parse(event.argsDelta) };
+      const numericTokens=event.argsDelta.replace(/"(?:\\.|[^"\\])*"/g,'').match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g)??[];
+      if(numericTokens.some(n=>! /^-?\d+$/.test(n)||!Number.isSafeInteger(Number(n))))return event;
+      return {
+        ...event,
+        argsDelta: JSON.parse(event.argsDelta, (_key, value: unknown) => {
+          // Never round a numeric lexeme while deciding a regression gate.
+          // Fractional/unsafe numbers retain byte-sensitive argument comparison.
+          if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new RangeError('non-exact JSON number');
+          return value;
+        }),
+      };
     } catch {
       /* Incomplete/invalid fragments remain byte-sensitive. */
     }
