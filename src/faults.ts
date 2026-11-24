@@ -24,6 +24,7 @@
  * the boundary, including when the boundary frame was dropped or reordered.
  */
 import { formatSseMessage } from './adapters/sse.js';
+import { providerWire } from './adapters/providers.js';
 import { encodeEvent } from './adapters/protocols.js';
 import type { InjectedFrame, NormalizedEvent, ReplayOutcome, TraceFrame, TraceMeta } from './types.js';
 
@@ -178,6 +179,7 @@ export function formatScenario(faults: Fault[]): string {
 /** Wire encoder for mutated frames, matching the trace framing/protocol. */
 export function defaultEncoder(meta: Pick<TraceMeta, 'framing' | 'protocol'>): (event: NormalizedEvent) => string {
   return (event) => {
+    if (meta.framing === 'sse') { const wire = providerWire(event, meta.protocol); if (wire) return wire; }
     const payload = encodeEvent(event, meta.protocol);
     switch (meta.framing) {
       case 'sse':

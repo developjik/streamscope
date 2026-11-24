@@ -74,6 +74,9 @@ jobs:
       - name: Playwright fixture E2E
         run: npm run test:e2e
 
+      - name: Vitest browser-mode recording fixture
+        run: npm run test:browser
+
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

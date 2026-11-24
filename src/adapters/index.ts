@@ -6,6 +6,7 @@
  * detected per payload by `protocols.ts` and exposed as `protocol`.
  */
 import type { AdapterFrame, Framing, NormalizedEvent, Protocol } from '../types.js';
+import { providerEvents, providerWire } from './providers.js';
 import { NdjsonParser } from './ndjson.js';
 import { SseParser, formatSseMessage } from './sse.js';
 import { adapterLabel, classifyPayload, encodeEvent } from './protocols.js';
@@ -123,6 +124,7 @@ class Adapter implements StreamAdapter {
   }
 
   encode(event: NormalizedEvent): string {
+    if (this.framing === 'sse') { const wire = providerWire(event, this.protocol); if (wire) return wire; }
     const payload = encodeEvent(event, this.protocol);
     return this.wrap(payload);
   }
@@ -159,12 +161,12 @@ class Adapter implements StreamAdapter {
     for (const message of messages) {
       const payload = message.data;
       if (payload === '' && message.event === undefined) continue;
-      const classified = classifyPayload(payload, this.hint);
+      const classified = providerEvents(message.event, payload, this.detectedProtocol ?? (this.hint === 'auto' ? undefined : this.hint)) ?? classifyPayload(payload, this.hint);
       const events = classified.events;
       this.observeProtocol(classified.protocol);
       if (events.length === 0) continue;
       events.forEach((event, index) => {
-        frames.push({ raw: index === 0 ? message.raw : this.wrap(encodeEvent(event, this.protocol)), event });
+        frames.push({ raw: events.length > 1 ? this.encode(event) : message.raw, event });
       });
     }
     return frames;

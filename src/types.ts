@@ -55,7 +55,7 @@ export interface NormalizedEvent {
 export type Framing = 'sse' | 'ndjson' | 'json' | 'raw';
 
 /** Protocol adapter label written into trace metadata. */
-export type Protocol = 'ag-ui' | 'ai-sdk' | 'ai-sdk-data' | 'generic';
+export type Protocol = 'ag-ui' | 'ai-sdk' | 'ai-sdk-data' | 'openai-assistants' | 'langgraph' | 'generic';
 
 export interface TraceRequest {
   method?: string;

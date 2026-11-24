@@ -43,6 +43,14 @@
     "./playwright": {
       "types": "./dist/playwright.d.ts",
       "import": "./dist/playwright.js"
+    },
+    "./vitest": {
+      "types": "./dist/vitest.d.ts",
+      "import": "./dist/vitest.js"
+    },
+    "./cypress": {
+      "types": "./dist/cypress.d.ts",
+      "import": "./dist/cypress.js"
     }
   },
   "files": [
@@ -56,13 +64,15 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node e2e/run-e2e.mjs",
+    "test:e2e": "node e2e/run-e2e.mjs && node e2e/runner-fixtures.mjs",
     "demo": "node demo/server.mjs",
     "verify": "npm run typecheck && npm test && npm run build",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@vitest/browser-playwright": "^5.1.1",
     "@vitest/coverage-v8": "^5.1.1",
     "playwright": "^1.65.1",
     "playwright-core": "^1.65.1",
