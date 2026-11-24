@@ -7,8 +7,8 @@ const root=process.cwd();const pkg=JSON.parse(readFileSync(join(root,'package.js
 const temp=mkdtempSync(join(tmpdir(),'runtime-package-'));
 function run(command,args,cwd=root){const result=spawnSync(command,args,{cwd,encoding:'utf8',env:process.env});if(result.status!==0)throw new Error(`${command} failed (${result.status}): ${result.stderr} ${result.stdout}`);return result.stdout;}
 try{
- const tar=JSON.parse(run('npm',['pack','--ignore-scripts','--json','--pack-destination',temp]))[0].filename;
- run('npm',['install','--omit=dev','--no-audit','--no-fund',join(temp,tar)],temp);
+ const tar=process.env.RUNTIME_TARBALL || join(temp,JSON.parse(run('npm',['pack','--ignore-scripts','--json','--pack-destination',temp]))[0].filename);
+ run('npm',['install','--omit=dev','--no-audit','--no-fund',tar],temp);
  console.log(run('npm',['ls','--omit=dev','--depth=1'],temp));
  const installed=join(temp,'node_modules',pkg.name);
  const bins=typeof pkg.bin==='string'?{[pkg.name]:pkg.bin}:pkg.bin??{};
