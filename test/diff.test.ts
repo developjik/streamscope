@@ -78,3 +78,37 @@ describe('trace diff', () => {
     expect(html).toContain('title="Before trace" sandbox="allow-scripts"');
   });
 });
+
+describe('tool-call acceptance and structural keys', () => {
+  it('distinguishes a removed tool, an added tool, and exactly +200ms', () => {
+    const before = trace([
+      { id: 'call-keep', t: 0 },
+      { id: 'call-old', t: 20 },
+    ]);
+    const after = trace([
+      { id: 'call-keep', t: 200 },
+      { id: 'call-new', t: 220 },
+    ]);
+    for (const t of [before, after]) for (const f of t.frames) f.event.type = 'tool-call-delta';
+    const d = diffTraces(before, after);
+    expect(d.removed[0]?.key).toContain('call-old');
+    expect(d.added[0]?.key).toContain('call-new');
+    expect(d.matched[0]?.latencyDeltaMs).toBe(200);
+    expect(diffViolations(d, parseDiffGates('latency>199ms'))).toEqual(['latency>199ms']);
+    expect(diffViolations(d, parseDiffGates('latency>200ms'))).toEqual([]);
+  });
+  it('ignores object key ordering, reports escaped JSON pointers, and matches native input indices', () => {
+    const a = trace([{}, {}]),
+      b = trace([{}, {}]);
+    a.frames[0]!.event.data = { inputIndex: 0, value: { b: 2, a: 1 } };
+    a.frames[1]!.event.data = { inputIndex: 1, 'a/b~': { ok: true } };
+    b.frames[0]!.event.data = { inputIndex: 1, 'a/b~': { ok: false } };
+    b.frames[1]!.event.data = { value: { a: 1, b: 2 }, inputIndex: 0 };
+    const d = diffTraces(a, b);
+    expect(d.added).toHaveLength(0);
+    expect(d.removed).toHaveLength(0);
+    expect(d.matched[0]?.payload).toHaveLength(0);
+    expect(d.matched[1]?.payload[0]?.path).toBe('/data/a~1b~0/ok');
+    expect(d.matched.every((x) => x.reordered)).toBe(true);
+  });
+});
